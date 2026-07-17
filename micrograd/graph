@@ -1,0 +1,93 @@
+digraph {
+	Var_0100 [label="Var_0100: 1.0 (g=0.0)"]
+	L1N0w0 [label="L1N0w0: -0.7086133270672044 (g=0.0)"]
+	"Var_0100*L1N0w0" [label="Var_0100*L1N0w0: -0.7086133270672044 (g=0.0)"]
+	Var_0100 -> "Var_0100*L1N0w0"
+	L1N0w0 -> "Var_0100*L1N0w0"
+	Var_0101 [label="Var_0101: 2.0 (g=0.0)"]
+	L1N0w1 [label="L1N0w1: -0.32052962768183546 (g=0.0)"]
+	"Var_0101*L1N0w1" [label="Var_0101*L1N0w1: -0.6410592553636709 (g=0.0)"]
+	Var_0101 -> "Var_0101*L1N0w1"
+	L1N0w1 -> "Var_0101*L1N0w1"
+	Var_0102 [label="Var_0102: 3.0 (g=0.0)"]
+	L1N0w2 [label="L1N0w2: 0.22762719593090286 (g=0.0)"]
+	"Var_0102*L1N0w2" [label="Var_0102*L1N0w2: 0.6828815877927086 (g=0.0)"]
+	Var_0102 -> "Var_0102*L1N0w2"
+	L1N0w2 -> "Var_0102*L1N0w2"
+	"sum(Var_0100*L1N0w0, Var_0101*L1N0w1, Var_0102*L1N0w2)" [label="sum(Var_0100*L1N0w0, Var_0101*L1N0w1, Var_0102*L1N0w2): -0.6667909946381667 (g=0.0)"]
+	"Var_0100*L1N0w0" -> "sum(Var_0100*L1N0w0, Var_0101*L1N0w1, Var_0102*L1N0w2)"
+	"Var_0101*L1N0w1" -> "sum(Var_0100*L1N0w0, Var_0101*L1N0w1, Var_0102*L1N0w2)"
+	"Var_0102*L1N0w2" -> "sum(Var_0100*L1N0w0, Var_0101*L1N0w1, Var_0102*L1N0w2)"
+	L1N0b [label="L1N0b: 0.0766129910618294 (g=0.0)"]
+	"sum(sum(Var_0100*L1N0w0, Var_0101*L1N0w1, Var_0102*L1N0w2), L1N0b)" [label="sum(sum(Var_0100*L1N0w0, Var_0101*L1N0w1, Var_0102*L1N0w2), L1N0b): -0.5901780035763373 (g=0.0)"]
+	"sum(Var_0100*L1N0w0, Var_0101*L1N0w1, Var_0102*L1N0w2)" -> "sum(sum(Var_0100*L1N0w0, Var_0101*L1N0w1, Var_0102*L1N0w2), L1N0b)"
+	L1N0b -> "sum(sum(Var_0100*L1N0w0, Var_0101*L1N0w1, Var_0102*L1N0w2), L1N0b)"
+	"tanh(sum(sum(Var_0100*L1N0w0, Var_0101*L1N0w1, Var_0102*L1N0w2), L1N0b))" [label="tanh(sum(sum(Var_0100*L1N0w0, Var_0101*L1N0w1, Var_0102*L1N0w2), L1N0b)): -0.5300236175188227 (g=0.0)"]
+	"sum(sum(Var_0100*L1N0w0, Var_0101*L1N0w1, Var_0102*L1N0w2), L1N0b)" -> "tanh(sum(sum(Var_0100*L1N0w0, Var_0101*L1N0w1, Var_0102*L1N0w2), L1N0b))"
+	L2N0w0 [label="L2N0w0: 0.011403571799185608 (g=0.0)"]
+	"tanh(sum(sum(Var_0100*L1N0w0, Var_0101*L1N0w1, Var_0102*L1N0w2), L1N0b))*L2N0w0" [label="tanh(sum(sum(Var_0100*L1N0w0, Var_0101*L1N0w1, Var_0102*L1N0w2), L1N0b))*L2N0w0: -0.006044162377639985 (g=0.0)"]
+	"tanh(sum(sum(Var_0100*L1N0w0, Var_0101*L1N0w1, Var_0102*L1N0w2), L1N0b))" -> "tanh(sum(sum(Var_0100*L1N0w0, Var_0101*L1N0w1, Var_0102*L1N0w2), L1N0b))*L2N0w0"
+	L2N0w0 -> "tanh(sum(sum(Var_0100*L1N0w0, Var_0101*L1N0w1, Var_0102*L1N0w2), L1N0b))*L2N0w0"
+	L1N1w0 [label="L1N1w0: -0.08812142051033511 (g=0.0)"]
+	"Var_0100*L1N1w0" [label="Var_0100*L1N1w0: -0.08812142051033511 (g=0.0)"]
+	Var_0100 -> "Var_0100*L1N1w0"
+	L1N1w0 -> "Var_0100*L1N1w0"
+	L1N1w1 [label="L1N1w1: 0.3930980773745494 (g=0.0)"]
+	"Var_0101*L1N1w1" [label="Var_0101*L1N1w1: 0.7861961547490988 (g=0.0)"]
+	Var_0101 -> "Var_0101*L1N1w1"
+	L1N1w1 -> "Var_0101*L1N1w1"
+	L1N1w2 [label="L1N1w2: 0.5611006777851328 (g=0.0)"]
+	"Var_0102*L1N1w2" [label="Var_0102*L1N1w2: 1.6833020333553985 (g=0.0)"]
+	Var_0102 -> "Var_0102*L1N1w2"
+	L1N1w2 -> "Var_0102*L1N1w2"
+	"sum(Var_0100*L1N1w0, Var_0101*L1N1w1, Var_0102*L1N1w2)" [label="sum(Var_0100*L1N1w0, Var_0101*L1N1w1, Var_0102*L1N1w2): 2.381376767594162 (g=0.0)"]
+	"Var_0100*L1N1w0" -> "sum(Var_0100*L1N1w0, Var_0101*L1N1w1, Var_0102*L1N1w2)"
+	"Var_0101*L1N1w1" -> "sum(Var_0100*L1N1w0, Var_0101*L1N1w1, Var_0102*L1N1w2)"
+	"Var_0102*L1N1w2" -> "sum(Var_0100*L1N1w0, Var_0101*L1N1w1, Var_0102*L1N1w2)"
+	L1N1b [label="L1N1b: 0.8707926512809046 (g=0.0)"]
+	"sum(sum(Var_0100*L1N1w0, Var_0101*L1N1w1, Var_0102*L1N1w2), L1N1b)" [label="sum(sum(Var_0100*L1N1w0, Var_0101*L1N1w1, Var_0102*L1N1w2), L1N1b): 3.2521694188750665 (g=0.0)"]
+	"sum(Var_0100*L1N1w0, Var_0101*L1N1w1, Var_0102*L1N1w2)" -> "sum(sum(Var_0100*L1N1w0, Var_0101*L1N1w1, Var_0102*L1N1w2), L1N1b)"
+	L1N1b -> "sum(sum(Var_0100*L1N1w0, Var_0101*L1N1w1, Var_0102*L1N1w2), L1N1b)"
+	"tanh(sum(sum(Var_0100*L1N1w0, Var_0101*L1N1w1, Var_0102*L1N1w2), L1N1b))" [label="tanh(sum(sum(Var_0100*L1N1w0, Var_0101*L1N1w1, Var_0102*L1N1w2), L1N1b)): 0.9970106146104769 (g=0.0)"]
+	"sum(sum(Var_0100*L1N1w0, Var_0101*L1N1w1, Var_0102*L1N1w2), L1N1b)" -> "tanh(sum(sum(Var_0100*L1N1w0, Var_0101*L1N1w1, Var_0102*L1N1w2), L1N1b))"
+	L2N0w1 [label="L2N0w1: 0.8071207191673335 (g=0.0)"]
+	"tanh(sum(sum(Var_0100*L1N1w0, Var_0101*L1N1w1, Var_0102*L1N1w2), L1N1b))*L2N0w1" [label="tanh(sum(sum(Var_0100*L1N1w0, Var_0101*L1N1w1, Var_0102*L1N1w2), L1N1b))*L2N0w1: 0.8047079242818733 (g=0.0)"]
+	"tanh(sum(sum(Var_0100*L1N1w0, Var_0101*L1N1w1, Var_0102*L1N1w2), L1N1b))" -> "tanh(sum(sum(Var_0100*L1N1w0, Var_0101*L1N1w1, Var_0102*L1N1w2), L1N1b))*L2N0w1"
+	L2N0w1 -> "tanh(sum(sum(Var_0100*L1N1w0, Var_0101*L1N1w1, Var_0102*L1N1w2), L1N1b))*L2N0w1"
+	L1N2w0 [label="L1N2w0: 0.7104867789246003 (g=0.0)"]
+	"Var_0100*L1N2w0" [label="Var_0100*L1N2w0: 0.7104867789246003 (g=0.0)"]
+	Var_0100 -> "Var_0100*L1N2w0"
+	L1N2w0 -> "Var_0100*L1N2w0"
+	L1N2w1 [label="L1N2w1: 0.34979727450279463 (g=0.0)"]
+	"Var_0101*L1N2w1" [label="Var_0101*L1N2w1: 0.6995945490055893 (g=0.0)"]
+	Var_0101 -> "Var_0101*L1N2w1"
+	L1N2w1 -> "Var_0101*L1N2w1"
+	L1N2w2 [label="L1N2w2: -0.05679121159436318 (g=0.0)"]
+	"Var_0102*L1N2w2" [label="Var_0102*L1N2w2: -0.17037363478308953 (g=0.0)"]
+	Var_0102 -> "Var_0102*L1N2w2"
+	L1N2w2 -> "Var_0102*L1N2w2"
+	"sum(Var_0100*L1N2w0, Var_0101*L1N2w1, Var_0102*L1N2w2)" [label="sum(Var_0100*L1N2w0, Var_0101*L1N2w1, Var_0102*L1N2w2): 1.2397076931471 (g=0.0)"]
+	"Var_0100*L1N2w0" -> "sum(Var_0100*L1N2w0, Var_0101*L1N2w1, Var_0102*L1N2w2)"
+	"Var_0101*L1N2w1" -> "sum(Var_0100*L1N2w0, Var_0101*L1N2w1, Var_0102*L1N2w2)"
+	"Var_0102*L1N2w2" -> "sum(Var_0100*L1N2w0, Var_0101*L1N2w1, Var_0102*L1N2w2)"
+	L1N2b [label="L1N2b: -0.794911940879552 (g=0.0)"]
+	"sum(sum(Var_0100*L1N2w0, Var_0101*L1N2w1, Var_0102*L1N2w2), L1N2b)" [label="sum(sum(Var_0100*L1N2w0, Var_0101*L1N2w1, Var_0102*L1N2w2), L1N2b): 0.4447957522675481 (g=0.0)"]
+	"sum(Var_0100*L1N2w0, Var_0101*L1N2w1, Var_0102*L1N2w2)" -> "sum(sum(Var_0100*L1N2w0, Var_0101*L1N2w1, Var_0102*L1N2w2), L1N2b)"
+	L1N2b -> "sum(sum(Var_0100*L1N2w0, Var_0101*L1N2w1, Var_0102*L1N2w2), L1N2b)"
+	"tanh(sum(sum(Var_0100*L1N2w0, Var_0101*L1N2w1, Var_0102*L1N2w2), L1N2b))" [label="tanh(sum(sum(Var_0100*L1N2w0, Var_0101*L1N2w1, Var_0102*L1N2w2), L1N2b)): 0.41761173249864886 (g=0.0)"]
+	"sum(sum(Var_0100*L1N2w0, Var_0101*L1N2w1, Var_0102*L1N2w2), L1N2b)" -> "tanh(sum(sum(Var_0100*L1N2w0, Var_0101*L1N2w1, Var_0102*L1N2w2), L1N2b))"
+	L2N0w2 [label="L2N0w2: -0.8762521770540883 (g=0.0)"]
+	"tanh(sum(sum(Var_0100*L1N2w0, Var_0101*L1N2w1, Var_0102*L1N2w2), L1N2b))*L2N0w2" [label="tanh(sum(sum(Var_0100*L1N2w0, Var_0101*L1N2w1, Var_0102*L1N2w2), L1N2b))*L2N0w2: -0.3659331897652706 (g=0.0)"]
+	"tanh(sum(sum(Var_0100*L1N2w0, Var_0101*L1N2w1, Var_0102*L1N2w2), L1N2b))" -> "tanh(sum(sum(Var_0100*L1N2w0, Var_0101*L1N2w1, Var_0102*L1N2w2), L1N2b))*L2N0w2"
+	L2N0w2 -> "tanh(sum(sum(Var_0100*L1N2w0, Var_0101*L1N2w1, Var_0102*L1N2w2), L1N2b))*L2N0w2"
+	"sum(tanh(sum(sum(Var_0100*L1N0w0, Var_0101*L1N0w1, Var_0102*L1N0w2), L1N0b))*L2N0w0, tanh(sum(sum(Var_0100*L1N1w0, Var_0101*L1N1w1, Var_0102*L1N1w2), L1N1b))*L2N0w1, tanh(sum(sum(Var_0100*L1N2w0, Var_0101*L1N2w1, Var_0102*L1N2w2), L1N2b))*L2N0w2)" [label="sum(tanh(sum(sum(Var_0100*L1N0w0, Var_0101*L1N0w1, Var_0102*L1N0w2), L1N0b))*L2N0w0, tanh(sum(sum(Var_0100*L1N1w0, Var_0101*L1N1w1, Var_0102*L1N1w2), L1N1b))*L2N0w1, tanh(sum(sum(Var_0100*L1N2w0, Var_0101*L1N2w1, Var_0102*L1N2w2), L1N2b))*L2N0w2): 0.4327305721389627 (g=0.0)"]
+	"tanh(sum(sum(Var_0100*L1N0w0, Var_0101*L1N0w1, Var_0102*L1N0w2), L1N0b))*L2N0w0" -> "sum(tanh(sum(sum(Var_0100*L1N0w0, Var_0101*L1N0w1, Var_0102*L1N0w2), L1N0b))*L2N0w0, tanh(sum(sum(Var_0100*L1N1w0, Var_0101*L1N1w1, Var_0102*L1N1w2), L1N1b))*L2N0w1, tanh(sum(sum(Var_0100*L1N2w0, Var_0101*L1N2w1, Var_0102*L1N2w2), L1N2b))*L2N0w2)"
+	"tanh(sum(sum(Var_0100*L1N1w0, Var_0101*L1N1w1, Var_0102*L1N1w2), L1N1b))*L2N0w1" -> "sum(tanh(sum(sum(Var_0100*L1N0w0, Var_0101*L1N0w1, Var_0102*L1N0w2), L1N0b))*L2N0w0, tanh(sum(sum(Var_0100*L1N1w0, Var_0101*L1N1w1, Var_0102*L1N1w2), L1N1b))*L2N0w1, tanh(sum(sum(Var_0100*L1N2w0, Var_0101*L1N2w1, Var_0102*L1N2w2), L1N2b))*L2N0w2)"
+	"tanh(sum(sum(Var_0100*L1N2w0, Var_0101*L1N2w1, Var_0102*L1N2w2), L1N2b))*L2N0w2" -> "sum(tanh(sum(sum(Var_0100*L1N0w0, Var_0101*L1N0w1, Var_0102*L1N0w2), L1N0b))*L2N0w0, tanh(sum(sum(Var_0100*L1N1w0, Var_0101*L1N1w1, Var_0102*L1N1w2), L1N1b))*L2N0w1, tanh(sum(sum(Var_0100*L1N2w0, Var_0101*L1N2w1, Var_0102*L1N2w2), L1N2b))*L2N0w2)"
+	L2N0b [label="L2N0b: 0.65637064795863 (g=0.0)"]
+	"sum(sum(tanh(sum(sum(Var_0100*L1N0w0, Var_0101*L1N0w1, Var_0102*L1N0w2), L1N0b))*L2N0w0, tanh(sum(sum(Var_0100*L1N1w0, Var_0101*L1N1w1, Var_0102*L1N1w2), L1N1b))*L2N0w1, tanh(sum(sum(Var_0100*L1N2w0, Var_0101*L1N2w1, Var_0102*L1N2w2), L1N2b))*L2N0w2), L2N0b)" [label="sum(sum(tanh(sum(sum(Var_0100*L1N0w0, Var_0101*L1N0w1, Var_0102*L1N0w2), L1N0b))*L2N0w0, tanh(sum(sum(Var_0100*L1N1w0, Var_0101*L1N1w1, Var_0102*L1N1w2), L1N1b))*L2N0w1, tanh(sum(sum(Var_0100*L1N2w0, Var_0101*L1N2w1, Var_0102*L1N2w2), L1N2b))*L2N0w2), L2N0b): 1.0891012200975927 (g=0.0)"]
+	"sum(tanh(sum(sum(Var_0100*L1N0w0, Var_0101*L1N0w1, Var_0102*L1N0w2), L1N0b))*L2N0w0, tanh(sum(sum(Var_0100*L1N1w0, Var_0101*L1N1w1, Var_0102*L1N1w2), L1N1b))*L2N0w1, tanh(sum(sum(Var_0100*L1N2w0, Var_0101*L1N2w1, Var_0102*L1N2w2), L1N2b))*L2N0w2)" -> "sum(sum(tanh(sum(sum(Var_0100*L1N0w0, Var_0101*L1N0w1, Var_0102*L1N0w2), L1N0b))*L2N0w0, tanh(sum(sum(Var_0100*L1N1w0, Var_0101*L1N1w1, Var_0102*L1N1w2), L1N1b))*L2N0w1, tanh(sum(sum(Var_0100*L1N2w0, Var_0101*L1N2w1, Var_0102*L1N2w2), L1N2b))*L2N0w2), L2N0b)"
+	L2N0b -> "sum(sum(tanh(sum(sum(Var_0100*L1N0w0, Var_0101*L1N0w1, Var_0102*L1N0w2), L1N0b))*L2N0w0, tanh(sum(sum(Var_0100*L1N1w0, Var_0101*L1N1w1, Var_0102*L1N1w2), L1N1b))*L2N0w1, tanh(sum(sum(Var_0100*L1N2w0, Var_0101*L1N2w1, Var_0102*L1N2w2), L1N2b))*L2N0w2), L2N0b)"
+	"tanh(sum(sum(tanh(sum(sum(Var_0100*L1N0w0, Var_0101*L1N0w1, Var_0102*L1N0w2), L1N0b))*L2N0w0, tanh(sum(sum(Var_0100*L1N1w0, Var_0101*L1N1w1, Var_0102*L1N1w2), L1N1b))*L2N0w1, tanh(sum(sum(Var_0100*L1N2w0, Var_0101*L1N2w1, Var_0102*L1N2w2), L1N2b))*L2N0w2), L2N0b))" [label="tanh(sum(sum(tanh(sum(sum(Var_0100*L1N0w0, Var_0101*L1N0w1, Var_0102*L1N0w2), L1N0b))*L2N0w0, tanh(sum(sum(Var_0100*L1N1w0, Var_0101*L1N1w1, Var_0102*L1N1w2), L1N1b))*L2N0w1, tanh(sum(sum(Var_0100*L1N2w0, Var_0101*L1N2w1, Var_0102*L1N2w2), L1N2b))*L2N0w2), L2N0b)): 0.7965498677922579 (g=0.0)"]
+	"sum(sum(tanh(sum(sum(Var_0100*L1N0w0, Var_0101*L1N0w1, Var_0102*L1N0w2), L1N0b))*L2N0w0, tanh(sum(sum(Var_0100*L1N1w0, Var_0101*L1N1w1, Var_0102*L1N1w2), L1N1b))*L2N0w1, tanh(sum(sum(Var_0100*L1N2w0, Var_0101*L1N2w1, Var_0102*L1N2w2), L1N2b))*L2N0w2), L2N0b)" -> "tanh(sum(sum(tanh(sum(sum(Var_0100*L1N0w0, Var_0101*L1N0w1, Var_0102*L1N0w2), L1N0b))*L2N0w0, tanh(sum(sum(Var_0100*L1N1w0, Var_0101*L1N1w1, Var_0102*L1N1w2), L1N1b))*L2N0w1, tanh(sum(sum(Var_0100*L1N2w0, Var_0101*L1N2w1, Var_0102*L1N2w2), L1N2b))*L2N0w2), L2N0b))"
+}
