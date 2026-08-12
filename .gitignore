@@ -11,3 +11,15 @@ htmlcov/
 .ipynb_checkpoints/
 .DS_Store
 .env
+
+# trainui local SQLite (and sidecar files)
+trainui/trainui.db
+trainui/trainui.db-shm
+trainui/trainui.db-wal
+trainui/*.db
+trainui/*.db-shm
+trainui/*.db-wal
+
+# large local data (never push)
+gpt/sample.jsonl
+*.jsonl

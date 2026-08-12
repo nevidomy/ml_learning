@@ -21,6 +21,8 @@ CREATE TABLE IF NOT EXISTS models (
     description TEXT NOT NULL DEFAULT '',
     param_count INTEGER,
     context_width INTEGER,
+    metrics_decl TEXT,
+    chars_per_token REAL,
     pinned INTEGER NOT NULL DEFAULT 0,
     created_at REAL NOT NULL,
     last_used_at REAL NOT NULL
@@ -33,7 +35,9 @@ CREATE TABLE IF NOT EXISTS runs (
     last_activity_at REAL NOT NULL,
     expected_seq INTEGER NOT NULL DEFAULT 1,
     status TEXT NOT NULL DEFAULT 'running',
-    pinned INTEGER NOT NULL DEFAULT 0
+    pinned INTEGER NOT NULL DEFAULT 0,
+    last_metrics TEXT,
+    description TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_runs_model ON runs(model_id);
 
@@ -102,9 +106,46 @@ class Database:
             conn.execute("ALTER TABLE models ADD COLUMN param_count INTEGER")
         if "context_width" not in model_cols:
             conn.execute("ALTER TABLE models ADD COLUMN context_width INTEGER")
+        if "metrics_decl" not in model_cols:
+            conn.execute("ALTER TABLE models ADD COLUMN metrics_decl TEXT")
+        if "chars_per_token" not in model_cols:
+            conn.execute("ALTER TABLE models ADD COLUMN chars_per_token REAL")
         point_cols = {r[1] for r in conn.execute("PRAGMA table_info(metric_points)")}
         if "context_size" not in point_cols:
             conn.execute("ALTER TABLE metric_points ADD COLUMN context_size INTEGER")
+        run_cols = {r[1] for r in conn.execute("PRAGMA table_info(runs)")}
+        if "description" not in run_cols:
+            conn.execute(
+                "ALTER TABLE runs ADD COLUMN description TEXT NOT NULL DEFAULT ''"
+            )
+        if "last_metrics" not in run_cols:
+            conn.execute("ALTER TABLE runs ADD COLUMN last_metrics TEXT")
+            # backfill: cumulative last value per metric key from existing points
+            run_ids = [r[0] for r in conn.execute("SELECT id FROM runs").fetchall()]
+            for rid in run_ids:
+                acc: dict = {}
+                for (mj,) in conn.execute(
+                    "SELECT metrics FROM metric_points WHERE run_id=? ORDER BY seq",
+                    (rid,),
+                ):
+                    acc.update(json.loads(mj))
+                if acc:
+                    conn.execute(
+                        "UPDATE runs SET last_metrics=? WHERE id=?",
+                        (json.dumps(acc), rid),
+                    )
+        if "total_tokens" not in run_cols:
+            conn.execute(
+                "ALTER TABLE runs ADD COLUMN total_tokens INTEGER NOT NULL DEFAULT 0"
+            )
+            # backfill: batches * (per-point context_size, falling back to the
+            # model's context_width) summed over existing points
+            conn.execute(
+                """UPDATE runs SET total_tokens = COALESCE((
+                     SELECT SUM(p.batches * COALESCE(p.context_size, m.context_width, 0))
+                     FROM metric_points p JOIN models m ON m.id = runs.model_id
+                     WHERE p.run_id = runs.id), 0)"""
+            )
 
     # ----- models -----
 
@@ -114,19 +155,26 @@ class Database:
         description: str,
         param_count: int | None = None,
         context_width: int | None = None,
+        metrics_decl: list[str] | None = None,
+        chars_per_token: float | None = None,
     ) -> dict:
         now = time.time()
+        decl_json = json.dumps(metrics_decl) if metrics_decl is not None else None
         with self._write_lock, self._conn() as conn:
             conn.execute(
                 """INSERT INTO models (id, description, param_count, context_width,
+                                       metrics_decl, chars_per_token,
                                        created_at, last_used_at)
-                   VALUES (?, ?, ?, ?, ?, ?)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(id) DO UPDATE SET
                        description=excluded.description,
                        last_used_at=excluded.last_used_at,
                        param_count=COALESCE(excluded.param_count, models.param_count),
-                       context_width=COALESCE(excluded.context_width, models.context_width)""",
-                (model_id, description, param_count, context_width, now, now),
+                       context_width=COALESCE(excluded.context_width, models.context_width),
+                       metrics_decl=COALESCE(excluded.metrics_decl, models.metrics_decl),
+                       chars_per_token=COALESCE(excluded.chars_per_token, models.chars_per_token)""",
+                (model_id, description, param_count, context_width, decl_json,
+                 chars_per_token, now, now),
             )
         return self.get_model(model_id)
 
@@ -138,17 +186,25 @@ class Database:
             raise NotFound(f"model {model_id!r} not found")
         return dict(row)
 
-    def list_models(self, q: str = "", limit: int = 200) -> list[dict]:
+    def list_models(self, q: str = "", limit: int = 200, offset: int = 0) -> list[dict]:
         like = f"%{q}%"
         rows = self._conn().execute(
             """SELECT m.*, (SELECT COUNT(*) FROM runs r WHERE r.model_id = m.id) AS run_count
                FROM models m
                WHERE (? = '' OR m.id LIKE ? OR m.description LIKE ?)
                ORDER BY m.pinned DESC, m.last_used_at DESC
-               LIMIT ?""",
-            (q, like, like, limit),
+               LIMIT ? OFFSET ?""",
+            (q, like, like, limit, offset),
         ).fetchall()
         return [dict(r) for r in rows]
+
+    def count_models(self, q: str = "") -> int:
+        like = f"%{q}%"
+        return self._conn().execute(
+            "SELECT COUNT(*) FROM models m"
+            " WHERE (? = '' OR m.id LIKE ? OR m.description LIKE ?)",
+            (q, like, like),
+        ).fetchone()[0]
 
     def set_model_pinned(self, model_id: str, pinned: bool) -> dict:
         with self._write_lock, self._conn() as conn:
@@ -166,40 +222,58 @@ class Database:
 
     # ----- runs -----
 
-    def create_run(self, model_id: str) -> dict:
+    def create_run(
+        self, model_id: str, description: str = "", started_at: float | None = None
+    ) -> dict:
         now = time.time()
+        started = started_at or now
         with self._write_lock, self._conn() as conn:
             row = conn.execute("SELECT id FROM models WHERE id=?", (model_id,)).fetchone()
             if row is None:
                 raise NotFound(f"model {model_id!r} not found")
             cur = conn.execute(
-                "INSERT INTO runs (model_id, started_at, last_activity_at) VALUES (?, ?, ?)",
-                (model_id, now, now),
+                "INSERT INTO runs (model_id, started_at, last_activity_at, description)"
+                " VALUES (?, ?, ?, ?)",
+                (model_id, started, started, description),
             )
             self._touch_model(conn, model_id)
             run_id = cur.lastrowid
         return self.get_run(run_id)
 
     def get_run(self, run_id: int) -> dict:
-        row = self._conn().execute(
+        conn = self._conn()
+        row = conn.execute(
             "SELECT * FROM runs WHERE id=?", (run_id,)
         ).fetchone()
         if row is None:
             raise NotFound(f"run {run_id} not found")
-        return dict(row)
+        d = dict(row)
+        d["train_time"] = self._train_time(conn, d)
+        return d
 
-    def list_runs(
-        self,
-        model_id: str | None = None,
-        q: str = "",
-        date_from: float | None = None,
-        date_to: float | None = None,
-        limit: int = 200,
-    ) -> list[dict]:
+    @staticmethod
+    def _train_time(conn, run: dict) -> float:
+        """Active training time: point span minus recorded pauses."""
+        paused = conn.execute(
+            "SELECT COALESCE(SUM(end_ts - start_ts), 0) FROM pauses WHERE run_id=?",
+            (run["id"],),
+        ).fetchone()[0]
+        return max(0.0, run["last_activity_at"] - run["started_at"] - paused)
+
+    @staticmethod
+    def _run_clauses(
+        model_id: str | None,
+        q: str,
+        date_from: float | None,
+        date_to: float | None,
+        unpinned: bool = False,
+    ) -> tuple[str, list]:
         clauses, params = [], []
         if model_id is not None:
             clauses.append("r.model_id = ?")
             params.append(model_id)
+        if unpinned:
+            clauses.append("r.pinned = 0")
         if q:
             clauses.append("(CAST(r.id AS TEXT) LIKE ? OR r.model_id LIKE ?)")
             params += [f"%{q}%", f"%{q}%"]
@@ -209,15 +283,50 @@ class Database:
         if date_to is not None:
             clauses.append("r.started_at <= ?")
             params.append(date_to)
-        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+        return ("WHERE " + " AND ".join(clauses)) if clauses else "", params
+
+    def list_runs(
+        self,
+        model_id: str | None = None,
+        q: str = "",
+        date_from: float | None = None,
+        date_to: float | None = None,
+        limit: int = 200,
+        offset: int = 0,
+        unpinned: bool = False,
+    ) -> list[dict]:
+        where, params = self._run_clauses(model_id, q, date_from, date_to, unpinned)
         rows = self._conn().execute(
-            f"""SELECT r.*, (SELECT COUNT(*) FROM metric_points p WHERE p.run_id = r.id) AS point_count
-                FROM runs r {where}
+            f"""SELECT r.*, m.param_count AS model_param_count,
+                       m.chars_per_token AS model_chars_per_token,
+                       (SELECT COUNT(*) FROM metric_points p WHERE p.run_id = r.id) AS point_count,
+                       (r.last_activity_at - r.started_at - COALESCE((
+                           SELECT SUM(end_ts - start_ts) FROM pauses p2
+                           WHERE p2.run_id = r.id), 0)) AS train_time
+                FROM runs r JOIN models m ON m.id = r.model_id {where}
                 ORDER BY r.pinned DESC, r.started_at DESC
-                LIMIT ?""",
-            (*params, limit),
+                LIMIT ? OFFSET ?""",
+            (*params, limit, offset),
         ).fetchall()
-        return [dict(r) for r in rows]
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["last_metrics"] = json.loads(d["last_metrics"]) if d["last_metrics"] else {}
+            out.append(d)
+        return out
+
+    def count_runs(
+        self,
+        model_id: str | None = None,
+        q: str = "",
+        date_from: float | None = None,
+        date_to: float | None = None,
+        unpinned: bool = False,
+    ) -> int:
+        where, params = self._run_clauses(model_id, q, date_from, date_to, unpinned)
+        return self._conn().execute(
+            f"SELECT COUNT(*) FROM runs r {where}", params
+        ).fetchone()[0]
 
     def set_run_pinned(self, run_id: int, pinned: bool) -> dict:
         with self._write_lock, self._conn() as conn:
@@ -262,8 +371,10 @@ class Database:
         batches: int,
         metrics: dict,
         context_size: int | None = None,
+        ts: float | None = None,
     ) -> dict:
         now = time.time()
+        ts = ts or now
         clean = {k: float(v) for k, v in metrics.items()}
         with self._write_lock, self._conn() as conn:
             run = conn.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
@@ -271,21 +382,90 @@ class Database:
                 raise NotFound(f"run {run_id} not found")
             if run["status"] == "completed" or seq != run["expected_seq"]:
                 raise SequenceConflict(run_id, run["expected_seq"], seq)
+            tokens = batches * self._effective_ctx(conn, run["model_id"], context_size)
             conn.execute(
                 "INSERT INTO metric_points (run_id, seq, ts, iteration, batches,"
                 " context_size, metrics) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (run_id, seq, now, iteration, batches, context_size, json.dumps(clean)),
+                (run_id, seq, ts, iteration, batches, context_size, json.dumps(clean)),
             )
+            last = json.loads(run["last_metrics"]) if run["last_metrics"] else {}
+            last.update(clean)
             conn.execute(
-                "UPDATE runs SET expected_seq=?, last_activity_at=?, status='running' WHERE id=?",
-                (seq + 1, now, run_id),
+                "UPDATE runs SET expected_seq=?, last_activity_at=?, status='running',"
+                " last_metrics=?, total_tokens=total_tokens+? WHERE id=?",
+                (seq + 1, ts, json.dumps(last), tokens, run_id),
             )
             self._touch_model(conn, run["model_id"])
-        return {"ok": True, "next_seq": seq + 1, "ts": now}
+        return {"ok": True, "next_seq": seq + 1, "ts": ts}
 
-    def resume_run(self, run_id: int, next_seq: int | None = None) -> dict:
+    @staticmethod
+    def _effective_ctx(conn, model_id: str, context_size: int | None) -> int:
+        if context_size:
+            return context_size
+        row = conn.execute(
+            "SELECT context_width FROM models WHERE id=?", (model_id,)
+        ).fetchone()
+        return int(row[0]) if row and row[0] else 0
+
+    def log_bulk(self, run_id: int, points: list[dict]) -> dict:
+        """Insert many points atomically (used by the offline-log uploader).
+
+        Points with seq below the server's expected sequence are skipped
+        (idempotent re-upload); a seq above it raises SequenceConflict.
+        """
+        now = time.time()
+        with self._write_lock, self._conn() as conn:
+            run = conn.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+            if run is None:
+                raise NotFound(f"run {run_id} not found")
+            if run["status"] == "completed":
+                raise SequenceConflict(run_id, run["expected_seq"], -1)
+            expected = run["expected_seq"]
+            last = json.loads(run["last_metrics"]) if run["last_metrics"] else {}
+            applied = skipped = 0
+            total_tokens = 0
+            last_ts = run["last_activity_at"]
+            for p in points:
+                seq = int(p["seq"])
+                if seq < expected:
+                    skipped += 1
+                    continue
+                if seq > expected:
+                    raise SequenceConflict(run_id, expected, seq)
+                clean = {k: float(v) for k, v in (p.get("metrics") or {}).items()}
+                ts = p.get("ts") or now
+                batches = int(p.get("batches") or 0)
+                total_tokens += batches * self._effective_ctx(
+                    conn, run["model_id"], p.get("context_size")
+                )
+                conn.execute(
+                    "INSERT INTO metric_points (run_id, seq, ts, iteration, batches,"
+                    " context_size, metrics) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (run_id, seq, ts, int(p["iteration"]), batches,
+                     p.get("context_size"), json.dumps(clean)),
+                )
+                last.update(clean)
+                last_ts = max(last_ts, ts)
+                expected = seq + 1
+                applied += 1
+            if applied:
+                conn.execute(
+                    "UPDATE runs SET expected_seq=?, last_activity_at=?, status='running',"
+                    " last_metrics=?, total_tokens=total_tokens+? WHERE id=?",
+                    (expected, last_ts, json.dumps(last), total_tokens, run_id),
+                )
+                self._touch_model(conn, run["model_id"])
+        return {"ok": True, "applied": applied, "skipped": skipped, "next_seq": expected}
+
+    def resume_run(
+        self,
+        run_id: int,
+        next_seq: int | None = None,
+        end_ts: float | None = None,
+    ) -> dict:
         """Close a pause gap and set the sequence the next log call must use."""
         now = time.time()
+        end = end_ts or now
         with self._write_lock, self._conn() as conn:
             run = conn.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
             if run is None:
@@ -293,17 +473,17 @@ class Database:
             seq = next_seq if next_seq is not None else run["expected_seq"]
             if seq < 1:
                 raise ValueError("next_seq must be >= 1")
-            if run["last_activity_at"] < now:
+            if run["last_activity_at"] < end:
                 conn.execute(
                     "INSERT INTO pauses (run_id, start_ts, end_ts) VALUES (?, ?, ?)",
-                    (run_id, run["last_activity_at"], now),
+                    (run_id, run["last_activity_at"], end),
                 )
             conn.execute(
                 "UPDATE runs SET expected_seq=?, last_activity_at=?, status='running' WHERE id=?",
-                (seq, now, run_id),
+                (seq, end, run_id),
             )
             self._touch_model(conn, run["model_id"])
-        return {"ok": True, "next_seq": seq, "resumed_at": now}
+        return {"ok": True, "next_seq": seq, "resumed_at": end}
 
     def finish_run(self, run_id: int) -> dict:
         with self._write_lock, self._conn() as conn:
@@ -329,9 +509,17 @@ class Database:
             .fetchall()
         ]
         run["pauses"] = pauses
+        run["last_metrics"] = (
+            json.loads(run["last_metrics"]) if run.get("last_metrics") else {}
+        )
         model = self.get_model(run["model_id"])
         run["model_param_count"] = model.get("param_count")
         run["model_context_width"] = model.get("context_width")
+        run["model_chars_per_token"] = model.get("chars_per_token")
+        try:
+            run["model_metrics_decl"] = json.loads(model.get("metrics_decl") or "[]")
+        except ValueError:
+            run["model_metrics_decl"] = []
         return run
 
     def run_metrics(self, run_id: int, keys: set[str] | None = None) -> dict:

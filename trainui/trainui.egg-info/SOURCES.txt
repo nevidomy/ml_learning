@@ -6,6 +6,7 @@ example.py
 pyproject.toml
 server.py
 ./__init__.py
+./auth.py
 ./client.py
 ./db.py
 ./example.py

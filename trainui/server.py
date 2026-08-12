@@ -8,11 +8,13 @@ import argparse
 import os
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from .auth import config as auth_config
+from .auth import require_auth
 from .db import Database, NotFound, SequenceConflict
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -26,10 +28,14 @@ class InitRequest(BaseModel):
     description: str = ""
     param_count: Optional[int] = None
     context_width: Optional[int] = None
+    metrics_decl: Optional[list[str]] = None
+    chars_per_token: Optional[float] = None
 
 
 class StartRunRequest(BaseModel):
     model_id: str
+    description: str = ""
+    started_at: Optional[float] = None  # set by the offline-log uploader
 
 
 class LogRequest(BaseModel):
@@ -38,10 +44,16 @@ class LogRequest(BaseModel):
     batches: int = 0
     context_size: Optional[int] = None
     metrics: dict[str, float] = {}
+    ts: Optional[float] = None  # original timestamp (offline replay)
+
+
+class BulkLogRequest(BaseModel):
+    points: list[LogRequest]
 
 
 class ResumeRequest(BaseModel):
     next_seq: Optional[int] = None
+    end_ts: Optional[float] = None  # pause end (offline replay)
 
 
 class PinRequest(BaseModel):
@@ -71,93 +83,122 @@ def _seq_conflict(_, exc: SequenceConflict):
 
 # ----- ingestion API (used by the python client) -----
 
-@app.post("/api/init")
+@app.get("/api/config")
+def public_config():
+    return auth_config()
+
+
+@app.post("/api/init", dependencies=[Depends(require_auth)])
 def init_model(req: InitRequest):
     return db.upsert_model(
-        req.model_id, req.description, req.param_count, req.context_width
+        req.model_id, req.description, req.param_count, req.context_width,
+        req.metrics_decl, req.chars_per_token,
     )
 
 
-@app.post("/api/runs")
+@app.post("/api/runs", dependencies=[Depends(require_auth)])
 def start_run(req: StartRunRequest):
-    return db.create_run(req.model_id)
+    return db.create_run(req.model_id, req.description, req.started_at)
 
 
-@app.post("/api/runs/{run_id}/log")
+@app.post("/api/runs/{run_id}/log", dependencies=[Depends(require_auth)])
 def log_point(run_id: int, req: LogRequest):
     return db.log_point(
-        run_id, req.seq, req.iteration, req.batches, req.metrics, req.context_size
+        run_id, req.seq, req.iteration, req.batches, req.metrics, req.context_size,
+        req.ts,
     )
 
 
-@app.post("/api/runs/{run_id}/resume")
+@app.post("/api/runs/{run_id}/log_bulk", dependencies=[Depends(require_auth)])
+def log_bulk(run_id: int, req: BulkLogRequest):
+    return db.log_bulk(run_id, [p.model_dump() for p in req.points])
+
+
+@app.post("/api/runs/{run_id}/resume", dependencies=[Depends(require_auth)])
 def resume_run(run_id: int, req: ResumeRequest):
     try:
-        return db.resume_run(run_id, req.next_seq)
+        return db.resume_run(run_id, req.next_seq, req.end_ts)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@app.post("/api/runs/{run_id}/finish")
+@app.post("/api/runs/{run_id}/finish", dependencies=[Depends(require_auth)])
 def finish_run(run_id: int):
     return db.finish_run(run_id)
 
 
 # ----- UI query API -----
 
-@app.get("/api/overview")
+@app.get("/api/overview", dependencies=[Depends(require_auth)])
 def overview():
     return db.overview()
 
 
-@app.get("/api/models")
-def list_models(q: str = ""):
-    return db.list_models(q=q)
+@app.get("/api/models", dependencies=[Depends(require_auth)])
+def list_models(q: str = "", limit: int = 50, offset: int = 0):
+    limit = max(1, min(limit, 500))
+    return {
+        "items": db.list_models(q=q, limit=limit, offset=max(0, offset)),
+        "total": db.count_models(q=q),
+    }
 
 
-@app.get("/api/models/{model_id}")
+@app.get("/api/models/{model_id}", dependencies=[Depends(require_auth)])
 def get_model(model_id: str):
     return db.get_model(model_id)
 
 
-@app.post("/api/models/{model_id}/pin")
+@app.post("/api/models/{model_id}/pin", dependencies=[Depends(require_auth)])
 def pin_model(model_id: str, req: PinRequest):
     return db.set_model_pinned(model_id, req.pinned)
 
 
-@app.delete("/api/models/{model_id}")
+@app.delete("/api/models/{model_id}", dependencies=[Depends(require_auth)])
 def delete_model(model_id: str):
     db.delete_model(model_id)
     return {"ok": True}
 
 
-@app.get("/api/runs")
+@app.get("/api/runs", dependencies=[Depends(require_auth)])
 def list_runs(
     model_id: Optional[str] = None,
     q: str = "",
     date_from: Optional[float] = None,
     date_to: Optional[float] = None,
+    limit: int = 50,
+    offset: int = 0,
+    unpinned: bool = False,
 ):
-    return db.list_runs(model_id=model_id, q=q, date_from=date_from, date_to=date_to)
+    limit = max(1, min(limit, 500))
+    return {
+        "items": db.list_runs(
+            model_id=model_id, q=q, date_from=date_from, date_to=date_to,
+            limit=limit, offset=max(0, offset), unpinned=unpinned,
+        ),
+        "total": db.count_runs(
+            model_id=model_id, q=q, date_from=date_from, date_to=date_to,
+            unpinned=unpinned,
+        ),
+    }
 
 
-@app.get("/api/runs/{run_id}")
+@app.get("/api/runs/{run_id}", dependencies=[Depends(require_auth)])
 def get_run(run_id: int):
     return db.run_detail(run_id)
 
 
-@app.post("/api/runs/{run_id}/pin")
+@app.post("/api/runs/{run_id}/pin", dependencies=[Depends(require_auth)])
 def pin_run(run_id: int, req: PinRequest):
     return db.set_run_pinned(run_id, req.pinned)
 
 
-@app.delete("/api/runs/{run_id}")
+@app.delete("/api/runs/{run_id}", dependencies=[Depends(require_auth)])
 def delete_run(run_id: int):
     db.delete_run(run_id)
     return {"ok": True}
 
 
-@app.get("/api/runs/{run_id}/metrics")
+@app.get("/api/runs/{run_id}/metrics", dependencies=[Depends(require_auth)])
 def run_metrics(run_id: int, keys: Optional[str] = None):
     key_set = None if keys is None else {k for k in keys.split(",") if k}
     return db.run_metrics(run_id, key_set)
