@@ -196,6 +196,13 @@ function esc(s) {
   }[c]));
 }
 
+// esc() + break opportunities after separators, so long snake_case model
+// ids wrap cleanly (mainly matters on narrow screens; no effect when the
+// name fits on one line)
+function breakable(s) {
+  return esc(s).replace(/([_\-\/.])/g, "$1<wbr>");
+}
+
 function fmtDate(ts) {
   return new Date(ts * 1000).toLocaleString();
 }
@@ -440,7 +447,7 @@ function cleanup() {
 
 function modelCard(m) {
   return `<a class="card ${m.pinned ? "pinned" : ""}" href="#/models/${encodeURIComponent(m.id)}">
-    <div class="card-title">${favBtn("model", m.id, m.favorite)}${pinBtn("model", m.id, m.pinned)} ${esc(m.id)}
+    <div class="card-title">${favBtn("model", m.id, m.favorite)}${pinBtn("model", m.id, m.pinned)} ${breakable(m.id)}
       <span style="flex:1"></span>${delBtn("model", m.id)}</div>
     <div class="desc">${esc(m.description || "")}</div>
     <div class="meta"><span>${m.run_count} run${m.run_count === 1 ? "" : "s"}</span>
@@ -469,11 +476,11 @@ function runRow(r, showModel) {
   const sizeLine = [params, tokens].filter(Boolean).join(" · ");
   const desc = r.description ? ` — ${esc(r.description)}` : "";
   return `<a class="row ${r.status === "running" ? "running" : ""} ${r.pinned ? "pinned" : ""}" href="#/runs/${r.id}">
-    <input type="checkbox" class="cmp-box" data-cmp="${r.id}"
+    <span class="row-btns"><input type="checkbox" class="cmp-box" data-cmp="${r.id}"
       title="select for comparison" ${getCompareSel().includes(r.id) ? "checked" : ""}>
-    ${favBtn("run", r.id, r.favorite)}${pinBtn("run", r.id, r.pinned)}
+    ${favBtn("run", r.id, r.favorite)}${pinBtn("run", r.id, r.pinned)}</span>
     <div class="row-main">
-      <div class="row-title">run #${r.id}${showModel ? ` · ${esc(r.model_id)}` : ""}${desc}</div>
+      <div class="row-title">run #${r.id}${showModel ? ` · ${breakable(r.model_id)}` : ""}${desc}</div>
       <div class="row-sub">started ${fmtDate(r.started_at)} · ${r.point_count} points${trained}</div>
       ${sizeLine ? `<div class="row-sub">${sizeLine}</div>` : ""}
       ${losses ? `<div class="row-sub">${losses}</div>` : ""}
@@ -692,20 +699,42 @@ async function viewAllRuns(params = {}) {
   bindRunsToolbar("runs", params, p => viewAllRuns(p));
 }
 
+// the filter bar collapses to a single toggle row when not needed; it opens
+// itself whenever a filter is actually active (sticky open/closed otherwise)
+function filtersOpen(params) {
+  if (params.q || params.date_from || params.date_to) return true;
+  return localStorage.getItem("trainui.filtersOpen") === "1";
+}
+
 function runsToolbar(params, size) {
   const toLocal = ts => ts ? new Date(ts * 1000).toISOString().slice(0, 16) : "";
-  return `<div class="toolbar">
+  const open = filtersOpen(params);
+  const active = params.q || params.date_from || params.date_to || params.fav;
+  return `<div class="toolbar filter-bar">
+    <button class="filter-toggle" id="filtertoggle" title="show/hide filters">
+      ${open ? "▾" : "▸"} filters${active ? ` <b class="filter-active">· active</b>` : ""}</button>
+    ${pagerTopHtml(size)}
+  </div>
+  <div class="toolbar filter-body"${open ? "" : ' style="display:none"'}>
     <input type="search" id="q" placeholder="search run id / model…" value="${esc(params.q || "")}">
     <label style="color:var(--text-dim);font-size:13px">from
       <input type="datetime-local" id="from" value="${toLocal(params.date_from)}"></label>
     <label style="color:var(--text-dim);font-size:13px">to
       <input type="datetime-local" id="to" value="${toLocal(params.date_to)}"></label>
     ${favFilterHtml(!!params.fav)}
-    ${pagerTopHtml(size)}
   </div>`;
 }
 
 function bindRunsToolbar(viewKey, params, render) {
+  document.getElementById("filtertoggle").addEventListener("click", () => {
+    const body = app.querySelector(".filter-body");
+    const open = body.style.display === "none";
+    body.style.display = open ? "" : "none";
+    localStorage.setItem("trainui.filtersOpen", open ? "1" : "0");
+    document.getElementById("filtertoggle").innerHTML =
+      document.getElementById("filtertoggle").innerHTML
+        .replace(/^[^ ]* /, open ? "▾ " : "▸ ");
+  });
   const q = document.getElementById("q");
   const from = document.getElementById("from");
   const to = document.getElementById("to");
@@ -737,7 +766,7 @@ async function viewModelDetail(id, params = {}) {
     { model_id: id, ...params });
   const runs = data.items;
   app.innerHTML = `
-    <h1>${favBtn("model", model.id, model.favorite)}${pinBtn("model", model.id, model.pinned)} ${esc(model.id)} ${delBtn("model", model.id)}</h1>
+    <h1>${favBtn("model", model.id, model.favorite)}${pinBtn("model", model.id, model.pinned)} ${breakable(model.id)} ${delBtn("model", model.id)}</h1>
     <p style="color:var(--text-dim)">${esc(model.description || "no description")}</p>
     <div class="run-stats">
       ${model.param_count ? `<span>params <b>${fmtParams(model.param_count)}</b></span>` : ""}
@@ -877,7 +906,7 @@ function cmpPanPlugin(state, chart) {
           chart.hovered = false;
           cmpUpdateHover(state, chart, null);
         });
-        u.over.addEventListener("mousedown", e => {
+        u.over.addEventListener("pointerdown", e => {
           if (e.button !== 0) return;
           panning = true;
           axisLock = null;
@@ -890,7 +919,7 @@ function cmpPanPlugin(state, chart) {
           u.over.style.cursor = "grabbing";
           e.preventDefault();
         });
-        document.addEventListener("mousemove", e => {
+        document.addEventListener("pointermove", e => {
           if (!panning) return;
           const dx = e.clientX - startX;
           const dy = e.clientY - startY;
@@ -910,7 +939,8 @@ function cmpPanPlugin(state, chart) {
           const shift = (-dx / u.bbox.width) * range;
           cmpSetAllScales(state, startMin + shift, startMax + shift);
         });
-        document.addEventListener("mouseup", e => {
+        const cmpEndPan = () => { panning = false; u.over.style.cursor = ""; };
+        document.addEventListener("pointerup", e => {
           // a press without movement is a click -> pin the hover frame(s)
           if (panning && Math.abs(e.clientX - startX) < 4 && Math.abs(e.clientY - startY) < 4) {
             if (e.shiftKey) {
@@ -919,9 +949,9 @@ function cmpPanPlugin(state, chart) {
               cmpPin(state, chart, chart.lastX);
             }
           }
-          panning = false;
-          u.over.style.cursor = "";
+          cmpEndPan();
         });
+        document.addEventListener("pointercancel", () => { if (panning) cmpEndPan(); });
         u.over.addEventListener("dblclick", () => cmpFitAll(state));
       },
     },
@@ -974,8 +1004,9 @@ function cmpYClipPlugin(state, chart) {
         const axisEl = u.axes[1] && u.axes[1]._el;
         if (!axisEl) return;
         axisEl.style.cursor = "ns-resize";
+        axisEl.style.touchAction = "none";  // vertical drags belong to us, not the page
         axisEl.title = "drag to clip y range · drag again to resize the clip · click to reset";
-        axisEl.addEventListener("mousedown", e => {
+        axisEl.addEventListener("pointerdown", e => {
           if (e.button !== 0) return;
           dragging = true;
           startOff = e.clientY - u.over.getBoundingClientRect().top;
@@ -992,7 +1023,7 @@ function cmpYClipPlugin(state, chart) {
           }
           e.preventDefault();
         });
-        document.addEventListener("mousemove", e => {
+        document.addEventListener("pointermove", e => {
           if (!dragging) return;
           const rect = u.over.getBoundingClientRect();
           const off = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
@@ -1005,7 +1036,7 @@ function cmpYClipPlugin(state, chart) {
             band.style.height = Math.abs(off - startOff) + "px";
           }
         });
-        document.addEventListener("mouseup", e => {
+        document.addEventListener("pointerup", e => {
           if (!dragging) return;
           dragging = false;
           const rect = u.over.getBoundingClientRect();
@@ -1020,7 +1051,12 @@ function cmpYClipPlugin(state, chart) {
             chart.yClip = { min: Math.min(v0, v1), max: Math.max(v0, v1) };
             rerange(u);
           }
-          // clip slides were already applied live on mousemove
+          // clip slides were already applied live on pointermove
+        });
+        document.addEventListener("pointercancel", () => {
+          if (!dragging) return;
+          dragging = false;
+          if (band) { band.remove(); band = null; }
         });
         axisEl.addEventListener("dblclick", () => {
           chart.yClip = null;
@@ -1031,11 +1067,16 @@ function cmpYClipPlugin(state, chart) {
   };
 }
 
+// compact layout: must match the @media block at the end of style.css.
+// a function (not a cached flag) so devtools device toggle reacts live
+const COMPACT_QUERY = "(max-width: 700px)";
+const isCompact = () => window.matchMedia(COMPACT_QUERY).matches;
+
 function cmpChartHeight(chart) {
   // fullscreen: leave room for the uPlot legend row below the plot
   return chart.body.classList.contains("fs-body")
-    ? Math.max(300, chart.body.clientHeight - 36)
-    : 300;
+    ? Math.max(isCompact() ? 220 : 300, chart.body.clientHeight - 36)
+    : (isCompact() ? 220 : 300);
 }
 
 function makeCmpChart(state, chart) {
@@ -2122,9 +2163,12 @@ function parsePeriod(s) {
   return parseFloat(m[1]) * mult;
 }
 
-// drag pans the view window instead of zooming
+// drag pans the view window instead of zooming.
+// pointer events (not mouse*) so touch drags pan too; .u-over's
+// `touch-action: pan-y` keeps vertical swipes scrolling the page
 function panPlugin(state, chart) {
   let panning = false, startX = 0, startMin = 0, startMax = 0;
+  const endPan = u => { panning = false; u.over.style.cursor = ""; };
   return {
     hooks: {
       ready: u => {
@@ -2133,7 +2177,7 @@ function panPlugin(state, chart) {
           chart.hovered = false;
           updateHoverPanel(state, null, chart);
         });
-        u.over.addEventListener("mousedown", e => {
+        u.over.addEventListener("pointerdown", e => {
           if (e.button !== 0) return;
           panning = true;
           startX = e.clientX;
@@ -2142,22 +2186,23 @@ function panPlugin(state, chart) {
           u.over.style.cursor = "grabbing";
           e.preventDefault();
         });
-        document.addEventListener("mousemove", e => {
+        document.addEventListener("pointermove", e => {
           if (!panning) return;
           const range = startMax - startMin;
           const shift = (-(e.clientX - startX) / u.bbox.width) * range;
           disableFollow();
           setAllScales(state, startMin + shift, startMax + shift);
         });
-        document.addEventListener("mouseup", e => {
+        document.addEventListener("pointerup", e => {
           // a press without movement is a click -> pin the hover frame(s)
           if (panning && Math.abs(e.clientX - startX) < 4) {
             if (e.shiftKey && state.onChartShiftClick) state.onChartShiftClick(chart);
             else if (state.onChartClick) state.onChartClick(chart);
           }
-          panning = false;
-          u.over.style.cursor = "";
+          endPan(u);
         });
+        // browser takes the gesture (e.g. vertical page scroll on touch)
+        document.addEventListener("pointercancel", () => { if (panning) endPan(u); });
         u.over.addEventListener("dblclick", () => {
           disableFollow();
           fitAll(state);
@@ -2271,6 +2316,16 @@ async function fetchMetricsChunked(runId, keys, onChunk) {
   return { points: all, last };
 }
 
+// within a shared chart, the most informative split metric comes first:
+// val_ (headline), then test_/eval_, then train_, then anything else.
+// stable sort -> insertion order is kept within the same rank
+function keyRank(k) {
+  if (k.startsWith("val_")) return 0;
+  if (/^(?:test|eval|valid)_/.test(k)) return 1;
+  if (k.startsWith("train_")) return 2;
+  return 3;
+}
+
 function groupsFromKeys(keys) {
   const groups = [];
   const gmap = new Map();
@@ -2283,6 +2338,7 @@ function groupsFromKeys(keys) {
     }
     gmap.get(g).keys.push(k);
   }
+  for (const g of groups) g.keys.sort((a, b) => keyRank(a) - keyRank(b));
   return groups;
 }
 
@@ -2601,8 +2657,8 @@ function renderCharts(state) {
 function chartHeight(chart) {
   // fullscreen: leave room for the uPlot legend row below the plot
   return chart.body.classList.contains("fs-body")
-    ? Math.max(300, chart.body.clientHeight - 36)
-    : 260;
+    ? Math.max(isCompact() ? 180 : 300, chart.body.clientHeight - 36)
+    : (isCompact() ? 180 : 260);
 }
 
 async function openFullscreen(state, chart) {
