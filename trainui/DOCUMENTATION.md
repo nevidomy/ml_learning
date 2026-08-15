@@ -383,28 +383,58 @@ Schema migrations run automatically at startup.
 | `POST /api/{models,runs}/{id}/pin` | pin/unpin (highlight) |
 | `POST /api/{models,runs}/{id}/favorite` | favorite/unfavorite (filterable) |
 | `DELETE /api/models/{id}`, `DELETE /api/runs/{id}` | delete (model cascades) |
-| `GET /api/config` | public auth config for the UI |
+| `GET /api/config` | public auth config for the UI (`{"auth_enabled": bool}`) |
+| `POST /api/auth/signup` | request an invite (email; allowlist-gated, non-enumerating) |
+| `GET /api/auth/invite/{token}` | invite landing info (masked email or 410) |
+| `POST /api/auth/invite/{token}` | set password (single-use; returns a session token) |
+| `POST /api/auth/login` | email + password → session token |
+| `POST /api/auth/logout` | drop the bearer session |
 
 Sequence conflicts return HTTP 409 with `expected_seq` / `received_seq`.
 
 ### Authentication (public deployment)
 
-Auth is **disabled by default**. Enable with environment variables (read once
-at startup):
+Auth is **disabled by default**. `python -m trainui.server --global` listens
+on `0.0.0.0` and enables **invite-only email/password auth** (or set
+`TRAINUI_AUTH=1` yourself). No Google Cloud project is needed.
+
+Flow: an allowlisted visitor enters their email on the sign-in page → the
+server emails a single-use, 24h password-setup link → they choose a password
+→ they get a 30-day session token. Sign-up responses are deliberately
+non-enumerating (unknown and already-registered emails get the same answer,
+minus the email).
+
+Security properties:
+
+- Passwords are never stored or logged in plaintext — salted
+  PBKDF2-HMAC-SHA256, 260k iterations, constant-time compare.
+- Invite/session tokens are 256-bit random, stored only as SHA-256 digests;
+  invites expire in 24h and are single-use, sessions in 30 days.
+- Serve `--global` behind **HTTPS** (Caddy/nginx/tunnel) — passwords cross
+  the wire at login and password setup.
+
+Accepted credentials per `/api/*` request (any one):
+
+1. `Authorization: Bearer <session token>` — from the login flow (web UI).
+2. `Authorization: Bearer <TRAINUI_API_TOKEN>` — shared secret for training
+   scripts (the client reads the same env var, or pass `token=` to `Tracker`).
+3. Nothing, from **direct loopback connections** — local tools and the
+   offline-log uploader keep working. The exemption is void whenever proxy
+   headers (`X-Forwarded-For`, `X-Real-IP`, `Forwarded`) are present, so a
+   same-host reverse proxy can't masquerade as localhost; disable entirely
+   with `TRAINUI_ALLOW_LOCALHOST=0`.
+
+Configuration:
 
 ```bash
-export TRAINUI_GOOGLE_CLIENT_ID="…apps.googleusercontent.com"   # enables auth
-export TRAINUI_ALLOWED_EMAILS="you@gmail.com,teammate@gmail.com"
-export TRAINUI_API_TOKEN="$(openssl rand -hex 32)"              # for training scripts
+export TRAINUI_ALLOWED_EMAILS="you@gmail.com,teammate@gmail.com"  # invite allowlist
+export TRAINUI_API_TOKEN="$(openssl rand -hex 32)"                # training scripts
+export TRAINUI_PUBLIC_URL="https://trainui.example.com"           # invite email links
+# mail delivery — without SMTP the invite link is printed to the server log:
+export TRAINUI_SMTP_HOST=smtp.gmail.com TRAINUI_SMTP_PORT=587
+export TRAINUI_SMTP_USER=you@gmail.com TRAINUI_SMTP_PASS=<app password>
+python -m trainui.server --global --port 8501
 ```
-
-- Browser users sign in with Google; the ID token is verified server-side and
-  the email must be whitelisted.
-- Training scripts authenticate with `TRAINUI_API_TOKEN` (client reads the
-  same env var, or pass `token=` to `Tracker`).
-- Google Sign-In requires HTTPS on non-localhost origins — put the server
-  behind Caddy/nginx (`reverse_proxy 127.0.0.1:8501`) and add the origin to
-  the OAuth client's *Authorized JavaScript origins*.
 
 ---
 

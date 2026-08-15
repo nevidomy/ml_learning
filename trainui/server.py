@@ -8,11 +8,12 @@ import argparse
 import os
 from typing import Optional
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from . import auth as _auth
 from .auth import config as auth_config
 from .auth import require_auth
 from .db import Database, NotFound, SequenceConflict
@@ -60,6 +61,20 @@ class PinRequest(BaseModel):
     pinned: bool
 
 
+class SignupRequest(BaseModel):
+    email: str
+
+
+class SetPasswordRequest(BaseModel):
+    password: str
+    password2: str
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
 @app.exception_handler(NotFound)
 def _not_found(_, exc: NotFound):
     return JSONResponse(status_code=404, content={"detail": str(exc)})
@@ -81,11 +96,72 @@ def _seq_conflict(_, exc: SequenceConflict):
     )
 
 
-# ----- ingestion API (used by the python client) -----
+# ----- auth (invite-only email/password; enabled by --global / TRAINUI_AUTH=1) -----
 
 @app.get("/api/config")
 def public_config():
     return auth_config()
+
+
+@app.post("/api/auth/signup")
+def signup(req: SignupRequest):
+    """Request an invite. Allowlist-gated; deliberately non-enumerating --
+    unknown emails get the same response as known ones, minus the email."""
+    email = req.email.strip().lower()
+    base = request_base()
+    if email in _auth.ALLOWED_EMAILS and not db.user(email):
+        token = _auth.create_invite(db, email)
+        sent = _auth.send_invite(email, f"{base}/#/setpw/{token}")
+        return {"ok": True, "sent": sent}
+    return {"ok": True, "sent": True}
+
+
+@app.get("/api/auth/invite/{token}")
+def invite_info(token: str):
+    """Landing page check for the emailed link (validity + masked email)."""
+    email = _auth.peek_invite(db, token)
+    if not email:
+        raise HTTPException(status_code=410, detail="link expired or already used")
+    return {"email": email}
+
+
+@app.post("/api/auth/invite/{token}")
+def set_password(token: str, req: SetPasswordRequest):
+    if req.password != req.password2:
+        raise HTTPException(status_code=400, detail="passwords don't match")
+    if len(req.password) < 8:
+        raise HTTPException(status_code=400,
+                            detail="password must be at least 8 characters")
+    email = _auth.consume_invite(db, token)
+    if not email:
+        raise HTTPException(status_code=410, detail="link expired or already used")
+    db.add_user(email, _auth.hash_password(req.password))
+    return {"ok": True, "token": _auth.create_session(db, email)}
+
+
+@app.post("/api/auth/login")
+def login(req: LoginRequest):
+    u = db.user(req.email.strip().lower())
+    if not u or not _auth.verify_password(req.password, u["pw_hash"]):
+        raise HTTPException(status_code=401, detail="invalid email or password")
+    return {"ok": True, "token": _auth.create_session(db, u["email"])}
+
+
+@app.post("/api/auth/logout")
+def logout(request: Request):
+    auth = request.headers.get("authorization", "")
+    if auth.lower().startswith("bearer "):
+        _auth.drop_session(db, auth[7:].strip())
+    return {"ok": True}
+
+
+def request_base() -> str:
+    """Public URL for emailed links -- set TRAINUI_PUBLIC_URL when running
+    --global (email links built from the request host break behind proxies)."""
+    return os.environ.get("TRAINUI_PUBLIC_URL", "").rstrip("/") or "http://127.0.0.1:8501"
+
+
+# ----- ingestion API (used by the python client) -----
 
 
 @app.post("/api/init", dependencies=[Depends(require_auth)])
@@ -220,12 +296,25 @@ def run_metrics(
 
 # ----- static UI -----
 
+class NoCacheStaticFiles(StaticFiles):
+    """Revalidate-on-every-load statics: the UI is small, and stale cached
+    app.js/index.html after a server update is a recurring footgun."""
+
+    async def get_response(self, path, scope):
+        resp = await super().get_response(path, scope)
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
+
 @app.get("/")
 def index():
-    return FileResponse(os.path.join(STATIC_DIR, "index.html"))
+    return FileResponse(
+        os.path.join(STATIC_DIR, "index.html"),
+        headers={"Cache-Control": "no-cache"},
+    )
 
 
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+app.mount("/static", NoCacheStaticFiles(directory=STATIC_DIR), name="static")
 
 
 def main():
@@ -233,7 +322,17 @@ def main():
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8501)
     parser.add_argument("--db", default=None, help="path to sqlite database file")
+    parser.add_argument(
+        "--global", dest="global_", action="store_true",
+        help="listen on 0.0.0.0 and require auth (invite-only email/password; "
+             "TRAINUI_ALLOWED_EMAILS controls who can sign up, "
+             "TRAINUI_API_TOKEN is the shared secret for the python client, "
+             "direct loopback connections stay exempt)")
     args = parser.parse_args()
+
+    if args.global_:
+        args.host = "0.0.0.0"
+        os.environ["TRAINUI_AUTH"] = "1"
 
     global db
     if args.db:

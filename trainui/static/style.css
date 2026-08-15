@@ -240,8 +240,21 @@ select:disabled, input:disabled { opacity: 0.45; cursor: not-allowed; }
 }
 .login-box h2 { margin: 0 0 8px; }
 .login-hint { color: var(--text-dim); font-size: 13px; margin: 0 0 20px; }
-.login-box #gsi-btn { display: flex; justify-content: center; }
+.login-hint a { color: var(--accent); }
+.login-box form { display: flex; flex-direction: column; gap: 10px; }
+.login-box input {
+  background: var(--bg, #10131a); border: 1px solid var(--border);
+  border-radius: 6px; color: inherit; padding: 9px 12px; font-size: 14px;
+}
+.login-box input:focus { border-color: var(--accent); outline: none; }
+.login-box .btn.primary {
+  background: var(--accent); color: #0b0d12; border: none; border-radius: 6px;
+  padding: 9px 12px; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.login-ok { color: #7bd88f; font-size: 13px; margin: 4px 0 0; }
 .login-err { color: #e5646e; font-size: 13px; margin: 14px 0 0; min-height: 1em; }
+#authbox a { color: var(--text-dim); }
+#authbox a:hover { color: var(--accent); }
 
 .hover-panel {
   background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;

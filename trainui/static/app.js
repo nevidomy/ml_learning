@@ -5,39 +5,169 @@ const app = document.getElementById("app");
 let refreshTimer = null;
 let resizeHandler = null;
 
-// ---------- auth ----------
+// ---------- auth (invite-only email/password) ----------
 
-let authConfig = { auth_enabled: false, google_client_id: null };
-const getToken = () => localStorage.getItem("trainui:idtoken") || "";
+let authConfig = { auth_enabled: false };
+const getToken = () => localStorage.getItem("trainui:token") || "";
 const setToken = t => t
-  ? localStorage.setItem("trainui:idtoken", t)
-  : localStorage.removeItem("trainui:idtoken");
+  ? localStorage.setItem("trainui:token", t)
+  : localStorage.removeItem("trainui:token");
 
 class AuthError extends Error {}
 
 function showLogin(message = "") {
   cleanup();
+  renderAuthBox();
   app.innerHTML = `
     <div class="login-box">
       <h2>Sign in to trainui</h2>
-      <p class="login-hint">Access is restricted to whitelisted Google accounts.</p>
-      <div id="gsi-btn"></div>
+      <p class="login-hint">Access is restricted to invited users.</p>
+      <form id="login-form">
+        <input type="email" id="login-email" placeholder="email"
+               autocomplete="email" required>
+        <input type="password" id="login-pw" placeholder="password"
+               autocomplete="current-password" required>
+        <button type="submit" class="btn primary">sign in</button>
+      </form>
       <p class="login-err">${esc(message)}</p>
+      <p class="login-hint">No account? <a href="#" id="to-signup">request an invite</a></p>
     </div>`;
-  const render = () => {
-    if (!window.google?.accounts?.id) return false;
-    google.accounts.id.initialize({
-      client_id: authConfig.google_client_id,
-      callback: resp => { setToken(resp.credential); route(); },
+  document.getElementById("login-form").addEventListener("submit", async e => {
+    e.preventDefault();
+    const err = app.querySelector(".login-err");
+    err.textContent = "";
+    try {
+      const resp = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: document.getElementById("login-email").value,
+          password: document.getElementById("login-pw").value,
+        }),
+      });
+      if (!resp.ok) throw new Error((await resp.json()).detail || resp.status);
+      setToken((await resp.json()).token);
+      route();
+    } catch (ex) { err.textContent = String(ex.message || ex); }
+  });
+  document.getElementById("to-signup").addEventListener("click", e => {
+    e.preventDefault();
+    showSignup();
+  });
+}
+
+function showSignup(sent = false, message = "") {
+  cleanup();
+  app.innerHTML = `
+    <div class="login-box">
+      <h2>Request an invite</h2>
+      <p class="login-hint">Sign-up is invite-only: if your email is on the
+        allowlist you'll get a password-setup link.</p>
+      ${sent
+        ? `<p class="login-ok">If that email is allowed, an invite is on its way —
+            check your inbox (or the server log if SMTP isn't configured).</p>`
+        : `<form id="signup-form">
+             <input type="email" id="signup-email" placeholder="email"
+                    autocomplete="email" required>
+             <button type="submit" class="btn primary">send invite</button>
+           </form>`}
+      <p class="login-err">${esc(message)}</p>
+      <p class="login-hint"><a href="#" id="to-login">back to sign in</a></p>
+    </div>`;
+  if (!sent) {
+    document.getElementById("signup-form").addEventListener("submit", async e => {
+      e.preventDefault();
+      try {
+        const resp = await fetch("/api/auth/signup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: document.getElementById("signup-email").value,
+          }),
+        });
+        if (!resp.ok) throw new Error((await resp.json()).detail || resp.status);
+        showSignup(true);
+      } catch (ex) { showSignup(false, String(ex.message || ex)); }
     });
-    google.accounts.id.renderButton(document.getElementById("gsi-btn"), {
-      theme: "filled_black", size: "large", text: "signin_with",
+  }
+  document.getElementById("to-login").addEventListener("click", e => {
+    e.preventDefault();
+    showLogin();
+  });
+}
+
+// landing page for emailed invite links: #/setpw/<token>
+async function viewSetPw(token) {
+  cleanup();
+  let email = null;
+  try {
+    email = (await api(`/api/auth/invite/${encodeURIComponent(token)}`)).email;
+  } catch { /* shown as invalid below */ }
+  app.innerHTML = `
+    <div class="login-box">
+      <h2>Set your password</h2>
+      ${email === null
+        ? `<p class="login-err">This invite link is expired or was already used —
+           request a new one.</p>`
+        : `<p class="login-hint">for <b>${esc(email)}</b></p>
+           <form id="setpw-form">
+             <input type="password" id="pw1" placeholder="password (8+ chars)"
+                    autocomplete="new-password" required minlength="8">
+             <input type="password" id="pw2" placeholder="repeat password"
+                    autocomplete="new-password" required minlength="8">
+             <button type="submit" class="btn primary">set password</button>
+           </form>`}
+      <p class="login-err"></p>
+      <p class="login-hint"><a href="#" id="to-login">back to sign in</a></p>
+    </div>`;
+  if (email !== null) {
+    document.getElementById("setpw-form").addEventListener("submit", async e => {
+      e.preventDefault();
+      const err = app.querySelector(".login-err");
+      err.textContent = "";
+      try {
+        const resp = await fetch(`/api/auth/invite/${encodeURIComponent(token)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            password: document.getElementById("pw1").value,
+            password2: document.getElementById("pw2").value,
+          }),
+        });
+        if (!resp.ok) throw new Error((await resp.json()).detail || resp.status);
+        setToken((await resp.json()).token);
+        location.hash = "#/";
+        route();
+      } catch (ex) { err.textContent = String(ex.message || ex); }
     });
-    return true;
-  };
-  if (!render()) {
-    const timer = setInterval(() => { if (render()) clearInterval(timer); }, 200);
-    setTimeout(() => clearInterval(timer), 10000);
+  }
+  document.getElementById("to-login").addEventListener("click", e => {
+    e.preventDefault();
+    location.hash = "#/";
+    showLogin();
+  });
+}
+
+// "sign out" control in the topbar when auth is on
+function renderAuthBox() {
+  const box = document.getElementById("authbox");
+  if (!box) return;
+  if (authConfig.auth_enabled && getToken()) {
+    box.innerHTML = `<a href="#" id="logout-link">sign out</a>`;
+    document.getElementById("logout-link").addEventListener("click", async e => {
+      e.preventDefault();
+      const token = getToken();
+      setToken("");
+      try {
+        await fetch("/api/auth/logout", {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${token}` },
+        });
+      } catch { /* session drop is best-effort */ }
+      showLogin();
+    });
+  } else {
+    box.innerHTML = "";
   }
 }
 
@@ -52,7 +182,7 @@ async function api(path, opts = {}) {
     const hadToken = !!token;
     setToken("");
     if (authConfig.auth_enabled) {
-      showLogin(hadToken ? "Session expired or account not whitelisted — sign in again." : "");
+      showLogin(hadToken ? "Session expired — sign in again." : "");
     }
     throw new AuthError("unauthorized");
   }
@@ -2868,8 +2998,10 @@ function parseHash() {
 
 async function route() {
   cleanup();
-  if (authConfig.auth_enabled && !getToken()) { showLogin(); return; }
   const { segs, params } = parseHash();
+  if (segs[0] === "setpw") { viewSetPw(segs[1] || ""); return; }
+  if (authConfig.auth_enabled && !getToken()) { showLogin(); return; }
+  renderAuthBox();
   app.innerHTML = `<div class="loading">loading…</div>`;
   try {
     if (segs.length === 0) await viewLanding();
@@ -2893,6 +3025,7 @@ async function boot() {
   try {
     authConfig = await api("/api/config");
   } catch { /* auth disabled or server unreachable */ }
+  renderAuthBox();
   route();
 }
 

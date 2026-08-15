@@ -60,6 +60,26 @@ CREATE TABLE IF NOT EXISTS pauses (
     end_ts REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_pauses_run ON pauses(run_id);
+
+-- invite-only email/password auth (see auth.py)
+CREATE TABLE IF NOT EXISTS users (
+    email TEXT PRIMARY KEY,            -- lowercased, allowlisted at signup
+    pw_hash TEXT NOT NULL,             -- pbkdf2$iters$salt$hash (never plain)
+    created_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS invites (
+    token_hash TEXT PRIMARY KEY,       -- sha256 of the emailed token
+    email TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    expires_at REAL NOT NULL,
+    used_at REAL                       -- single-use
+);
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash TEXT PRIMARY KEY,       -- sha256 of the bearer token
+    email TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    expires_at REAL NOT NULL
+);
 """
 
 
@@ -160,6 +180,68 @@ class Database:
             )
             conn.execute("UPDATE runs SET favorite = pinned")
             conn.execute("UPDATE runs SET pinned = 0")
+
+    # ----- auth (users / invites / sessions) -----
+
+    def user(self, email: str) -> dict | None:
+        row = self._conn().execute(
+            "SELECT email, pw_hash, created_at FROM users WHERE email=?",
+            (email.lower(),),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def add_user(self, email: str, pw_hash: str) -> None:
+        with self._write_lock, self._conn() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO users (email, pw_hash, created_at)"
+                " VALUES (?,?,?)",
+                (email.lower(), pw_hash, time.time()),
+            )
+
+    def token_create(self, token_hash: str, email: str, kind: str,
+                     ttl: float) -> None:
+        """kind: 'invite' | 'session'. Also sweeps expired tokens."""
+        now = time.time()
+        table = "invites" if kind == "invite" else "sessions"
+        with self._write_lock, self._conn() as conn:
+            conn.execute(
+                f"INSERT INTO {table} (token_hash, email, created_at,"
+                f" expires_at) VALUES (?,?,?,?)",
+                (token_hash, email, now, now + ttl),
+            )
+            conn.execute(f"DELETE FROM {table} WHERE expires_at<?", (now,))
+
+    def token_peek(self, token_hash: str, kind: str) -> str | None:
+        """-> email if the token is valid/unused/unexpired (no consume)."""
+        now = time.time()
+        if kind == "invite":
+            row = self._conn().execute(
+                "SELECT email FROM invites WHERE token_hash=?"
+                " AND used_at IS NULL AND expires_at>=?",
+                (token_hash, now),
+            ).fetchone()
+        else:
+            row = self._conn().execute(
+                "SELECT email FROM sessions WHERE token_hash=? AND expires_at>=?",
+                (token_hash, now),
+            ).fetchone()
+        return row["email"] if row else None
+
+    def invite_consume(self, token_hash: str) -> str | None:
+        email = self.token_peek(token_hash, "invite")
+        if email is None:
+            return None
+        with self._write_lock, self._conn() as conn:
+            conn.execute(
+                "UPDATE invites SET used_at=? WHERE token_hash=?",
+                (time.time(), token_hash),
+            )
+        return email
+
+    def session_drop(self, token_hash: str) -> None:
+        with self._write_lock, self._conn() as conn:
+            conn.execute("DELETE FROM sessions WHERE token_hash=?",
+                         (token_hash,))
 
     # ----- models -----
 

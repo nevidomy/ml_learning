@@ -123,29 +123,41 @@ python -m trainui.example
 
 ## Authentication (running on the public web)
 
-Auth is **disabled by default** (local use). To enable it, set:
+Auth is **disabled by default** (local use). To run on the public web:
 
 ```bash
-export TRAINUI_GOOGLE_CLIENT_ID="1234567890-abc.apps.googleusercontent.com"
-export TRAINUI_ALLOWED_EMAILS="nevidomy.vitaliy@gmail.com"   # comma-separated whitelist
-export TRAINUI_API_TOKEN="$(openssl rand -hex 32)"           # bearer token for training scripts
-python -m trainui.server --host 0.0.0.0 --port 8501
+export TRAINUI_ALLOWED_EMAILS="nevidomy.vitaliy@gmail.com"   # invite allowlist
+export TRAINUI_API_TOKEN="$(openssl rand -hex 32)"           # for training scripts
+export TRAINUI_PUBLIC_URL="https://trainui.example.com"      # used in invite emails
+python -m trainui.server --global --port 8501
 ```
 
-When enabled, every `/api/*` endpoint requires either a Google ID token from a
-whitelisted account (the web UI shows a "Sign in with Google" button and
-handles this automatically) or the shared `TRAINUI_API_TOKEN`. Static assets
-stay public; only the data API is protected.
+`--global` listens on `0.0.0.0` and enables **invite-only email/password auth**
+— no Google Cloud project needed. Flow: an allowlisted user enters their email
+on the sign-in page → the server emails a single-use 24h setup link → they
+choose a password → 30-day session. Passwords are stored only as salted
+PBKDF2 hashes, tokens only as SHA-256 digests.
 
-Setup steps:
+Every `/api/*` request then needs one of:
 
-1. [Google Cloud Console](https://console.cloud.google.com/apis/credentials) →
-   create an OAuth client ID of type **Web application**, and add your origin
-   (e.g. `https://trainui.example.com`) to *Authorized JavaScript origins*.
-2. Serve trainui behind HTTPS — Google Sign-In requires it on non-localhost
-   origins. Simplest: put it behind Caddy (`trainui.example.com { reverse_proxy
-   127.0.0.1:8501 }`) or nginx with a Let's Encrypt certificate.
-3. Point training scripts at the public URL with the API token:
+- a session token from the login flow (the web UI handles this automatically),
+- the shared `TRAINUI_API_TOKEN` as a bearer token (python client), or
+- nothing at all from **direct loopback connections** — local tools and the
+  uploader keep working. The exemption is void if proxy headers
+  (`X-Forwarded-For` etc.) are present, so a same-host reverse proxy can't be
+  used to sneak in as "localhost". Disable with `TRAINUI_ALLOW_LOCALHOST=0`.
+
+Mail delivery: without SMTP the invite link is printed to the **server log**
+(fine for inviting yourself). For real email delivery:
+
+```bash
+export TRAINUI_SMTP_HOST=smtp.gmail.com TRAINUI_SMTP_PORT=587
+export TRAINUI_SMTP_USER=you@gmail.com TRAINUI_SMTP_PASS=<app password>
+```
+
+Serve `--global` behind **HTTPS** (Caddy/nginx/any tunnel) — passwords are
+submitted over the wire. Point remote training scripts at the public URL with
+the API token:
 
 ```python
 import os

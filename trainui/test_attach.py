@@ -13,7 +13,8 @@ import time
 
 _TMP = tempfile.mkdtemp(prefix="trainui_attach_test_")
 os.environ["TRAINUI_DB"] = os.path.join(_TMP, "test.db")
-os.environ.pop("TRAINUI_GOOGLE_CLIENT_ID", None)   # auth off
+os.environ.pop("TRAINUI_AUTH", None)               # auth off
+os.environ.pop("TRAINUI_GOOGLE_CLIENT_ID", None)   # (removed auth option)
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
