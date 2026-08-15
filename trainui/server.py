@@ -135,11 +135,11 @@ def overview():
 
 
 @app.get("/api/models", dependencies=[Depends(require_auth)])
-def list_models(q: str = "", limit: int = 50, offset: int = 0):
+def list_models(q: str = "", limit: int = 50, offset: int = 0, fav: bool = False):
     limit = max(1, min(limit, 500))
     return {
-        "items": db.list_models(q=q, limit=limit, offset=max(0, offset)),
-        "total": db.count_models(q=q),
+        "items": db.list_models(q=q, limit=limit, offset=max(0, offset), fav=fav),
+        "total": db.count_models(q=q, fav=fav),
     }
 
 
@@ -151,6 +151,11 @@ def get_model(model_id: str):
 @app.post("/api/models/{model_id}/pin", dependencies=[Depends(require_auth)])
 def pin_model(model_id: str, req: PinRequest):
     return db.set_model_pinned(model_id, req.pinned)
+
+
+@app.post("/api/models/{model_id}/favorite", dependencies=[Depends(require_auth)])
+def favorite_model(model_id: str, req: PinRequest):
+    return db.set_model_favorite(model_id, req.pinned)
 
 
 @app.delete("/api/models/{model_id}", dependencies=[Depends(require_auth)])
@@ -167,17 +172,16 @@ def list_runs(
     date_to: Optional[float] = None,
     limit: int = 50,
     offset: int = 0,
-    unpinned: bool = False,
+    fav: bool = False,
 ):
     limit = max(1, min(limit, 500))
     return {
         "items": db.list_runs(
             model_id=model_id, q=q, date_from=date_from, date_to=date_to,
-            limit=limit, offset=max(0, offset), unpinned=unpinned,
+            limit=limit, offset=max(0, offset), fav=fav,
         ),
         "total": db.count_runs(
-            model_id=model_id, q=q, date_from=date_from, date_to=date_to,
-            unpinned=unpinned,
+            model_id=model_id, q=q, date_from=date_from, date_to=date_to, fav=fav,
         ),
     }
 
@@ -192,6 +196,11 @@ def pin_run(run_id: int, req: PinRequest):
     return db.set_run_pinned(run_id, req.pinned)
 
 
+@app.post("/api/runs/{run_id}/favorite", dependencies=[Depends(require_auth)])
+def favorite_run(run_id: int, req: PinRequest):
+    return db.set_run_favorite(run_id, req.pinned)
+
+
 @app.delete("/api/runs/{run_id}", dependencies=[Depends(require_auth)])
 def delete_run(run_id: int):
     db.delete_run(run_id)
@@ -199,9 +208,14 @@ def delete_run(run_id: int):
 
 
 @app.get("/api/runs/{run_id}/metrics", dependencies=[Depends(require_auth)])
-def run_metrics(run_id: int, keys: Optional[str] = None):
+def run_metrics(
+    run_id: int,
+    keys: Optional[str] = None,
+    since: Optional[int] = None,
+    limit: Optional[int] = None,
+):
     key_set = None if keys is None else {k for k in keys.split(",") if k}
-    return db.run_metrics(run_id, key_set)
+    return db.run_metrics(run_id, key_set, since, limit)
 
 
 # ----- static UI -----

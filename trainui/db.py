@@ -146,6 +146,20 @@ class Database:
                      FROM metric_points p JOIN models m ON m.id = runs.model_id
                      WHERE p.run_id = runs.id), 0)"""
             )
+        # favorites split from pins: existing stars become favorites and the
+        # pinned flag starts fresh (pin = subtle highlight, favorite = filterable)
+        if "favorite" not in model_cols:
+            conn.execute(
+                "ALTER TABLE models ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0"
+            )
+            conn.execute("UPDATE models SET favorite = pinned")
+            conn.execute("UPDATE models SET pinned = 0")
+        if "favorite" not in run_cols:
+            conn.execute(
+                "ALTER TABLE runs ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0"
+            )
+            conn.execute("UPDATE runs SET favorite = pinned")
+            conn.execute("UPDATE runs SET pinned = 0")
 
     # ----- models -----
 
@@ -186,30 +200,43 @@ class Database:
             raise NotFound(f"model {model_id!r} not found")
         return dict(row)
 
-    def list_models(self, q: str = "", limit: int = 200, offset: int = 0) -> list[dict]:
+    def list_models(
+        self, q: str = "", limit: int = 200, offset: int = 0, fav: bool = False
+    ) -> list[dict]:
         like = f"%{q}%"
         rows = self._conn().execute(
             """SELECT m.*, (SELECT COUNT(*) FROM runs r WHERE r.model_id = m.id) AS run_count
                FROM models m
                WHERE (? = '' OR m.id LIKE ? OR m.description LIKE ?)
-               ORDER BY m.pinned DESC, m.last_used_at DESC
+                 AND (? = 0 OR m.favorite = 1)
+               ORDER BY m.last_used_at DESC
                LIMIT ? OFFSET ?""",
-            (q, like, like, limit, offset),
+            (q, like, like, 1 if fav else 0, limit, offset),
         ).fetchall()
         return [dict(r) for r in rows]
 
-    def count_models(self, q: str = "") -> int:
+    def count_models(self, q: str = "", fav: bool = False) -> int:
         like = f"%{q}%"
         return self._conn().execute(
             "SELECT COUNT(*) FROM models m"
-            " WHERE (? = '' OR m.id LIKE ? OR m.description LIKE ?)",
-            (q, like, like),
+            " WHERE (? = '' OR m.id LIKE ? OR m.description LIKE ?)"
+            " AND (? = 0 OR m.favorite = 1)",
+            (q, like, like, 1 if fav else 0),
         ).fetchone()[0]
 
     def set_model_pinned(self, model_id: str, pinned: bool) -> dict:
         with self._write_lock, self._conn() as conn:
             cur = conn.execute(
                 "UPDATE models SET pinned=? WHERE id=?", (int(pinned), model_id)
+            )
+            if cur.rowcount == 0:
+                raise NotFound(f"model {model_id!r} not found")
+        return self.get_model(model_id)
+
+    def set_model_favorite(self, model_id: str, favorite: bool) -> dict:
+        with self._write_lock, self._conn() as conn:
+            cur = conn.execute(
+                "UPDATE models SET favorite=? WHERE id=?", (int(favorite), model_id)
             )
             if cur.rowcount == 0:
                 raise NotFound(f"model {model_id!r} not found")
@@ -266,14 +293,14 @@ class Database:
         q: str,
         date_from: float | None,
         date_to: float | None,
-        unpinned: bool = False,
+        fav: bool = False,
     ) -> tuple[str, list]:
         clauses, params = [], []
         if model_id is not None:
             clauses.append("r.model_id = ?")
             params.append(model_id)
-        if unpinned:
-            clauses.append("r.pinned = 0")
+        if fav:
+            clauses.append("r.favorite = 1")
         if q:
             clauses.append("(CAST(r.id AS TEXT) LIKE ? OR r.model_id LIKE ?)")
             params += [f"%{q}%", f"%{q}%"]
@@ -293,9 +320,9 @@ class Database:
         date_to: float | None = None,
         limit: int = 200,
         offset: int = 0,
-        unpinned: bool = False,
+        fav: bool = False,
     ) -> list[dict]:
-        where, params = self._run_clauses(model_id, q, date_from, date_to, unpinned)
+        where, params = self._run_clauses(model_id, q, date_from, date_to, fav)
         rows = self._conn().execute(
             f"""SELECT r.*, m.param_count AS model_param_count,
                        m.chars_per_token AS model_chars_per_token,
@@ -304,7 +331,7 @@ class Database:
                            SELECT SUM(end_ts - start_ts) FROM pauses p2
                            WHERE p2.run_id = r.id), 0)) AS train_time
                 FROM runs r JOIN models m ON m.id = r.model_id {where}
-                ORDER BY r.pinned DESC, r.started_at DESC
+                ORDER BY r.started_at DESC
                 LIMIT ? OFFSET ?""",
             (*params, limit, offset),
         ).fetchall()
@@ -321,9 +348,9 @@ class Database:
         q: str = "",
         date_from: float | None = None,
         date_to: float | None = None,
-        unpinned: bool = False,
+        fav: bool = False,
     ) -> int:
-        where, params = self._run_clauses(model_id, q, date_from, date_to, unpinned)
+        where, params = self._run_clauses(model_id, q, date_from, date_to, fav)
         return self._conn().execute(
             f"SELECT COUNT(*) FROM runs r {where}", params
         ).fetchone()[0]
@@ -332,6 +359,15 @@ class Database:
         with self._write_lock, self._conn() as conn:
             cur = conn.execute(
                 "UPDATE runs SET pinned=? WHERE id=?", (int(pinned), run_id)
+            )
+            if cur.rowcount == 0:
+                raise NotFound(f"run {run_id} not found")
+        return self.get_run(run_id)
+
+    def set_run_favorite(self, run_id: int, favorite: bool) -> dict:
+        with self._write_lock, self._conn() as conn:
+            cur = conn.execute(
+                "UPDATE runs SET favorite=? WHERE id=?", (int(favorite), run_id)
             )
             if cur.rowcount == 0:
                 raise NotFound(f"run {run_id} not found")
@@ -522,16 +558,32 @@ class Database:
             run["model_metrics_decl"] = []
         return run
 
-    def run_metrics(self, run_id: int, keys: set[str] | None = None) -> dict:
+    def run_metrics(
+        self,
+        run_id: int,
+        keys: set[str] | None = None,
+        since: int | None = None,
+        limit: int | None = None,
+    ) -> dict:
         """Return points (optionally filtered to `keys`) plus the last value of
         every metric key, so the UI can show current values for charts whose
-        series it chose not to fetch."""
-        self.get_run(run_id)
-        rows = self._conn().execute(
+        series it chose not to fetch. With `since`, only points with seq > since
+        are returned (incremental refresh); `last` then comes from the cached
+        runs.last_metrics instead of being recomputed over all rows."""
+        run = self.get_run(run_id)
+        sql = (
             "SELECT seq, ts, iteration, batches, context_size, metrics FROM metric_points"
-            " WHERE run_id=? ORDER BY seq",
-            (run_id,),
-        ).fetchall()
+            " WHERE run_id=?"
+        )
+        params: list = [run_id]
+        if since is not None:
+            sql += " AND seq>?"
+            params.append(since)
+        sql += " ORDER BY seq"
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
+        rows = self._conn().execute(sql, params).fetchall()
         points = []
         last: dict[str, float] = {}
         for r in rows:
@@ -549,6 +601,10 @@ class Database:
                     "metrics": metrics,
                 }
             )
+        if since is not None or limit is not None:
+            # partial result set: serve the cached full last-values map
+            raw = run.get("last_metrics")
+            last = json.loads(raw) if raw else {}
         return {"points": points, "last": last}
 
     def overview(self, recent_models: int = 6, recent_runs: int = 6) -> dict:

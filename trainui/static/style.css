@@ -86,6 +86,8 @@ a.card:hover { background: var(--bg-hover); border-color: #3a4150; }
 }
 .pin-btn.pinned { color: var(--pin); }
 .pin-btn:hover { transform: scale(1.15); }
+.pin-btn.pin-ico { font-size: 13px; opacity: 0.3; filter: grayscale(1); }
+.pin-btn.pin-ico.pinned { opacity: 1; filter: none; }
 
 .del-btn {
   background: none; border: none; cursor: pointer; font-size: 13px;
@@ -101,6 +103,11 @@ a.card:hover { background: var(--bg-hover); border-color: #3a4150; }
   text-decoration: none; color: inherit;
 }
 .row:hover { background: var(--bg-hover); }
+.row.pinned { background: rgba(79, 142, 247, 0.07); }
+.row.running { background: rgba(247, 178, 79, 0.12); }
+.row.pinned:hover { background: rgba(79, 142, 247, 0.12); }
+.row.running:hover { background: rgba(247, 178, 79, 0.18); }
+.card.pinned { border-color: var(--accent); background: rgba(79, 142, 247, 0.07); }
 .row .row-main { flex: 1; min-width: 0; }
 .row .row-title { font-weight: 600; }
 .row .row-sub { color: var(--text-dim); font-size: 12px; }
@@ -124,6 +131,13 @@ a.card:hover { background: var(--bg-hover); border-color: #3a4150; }
 .pager .pg.off { opacity: 0.35; cursor: default; }
 .pager .pg.off:hover { color: var(--text-dim); border-color: transparent; }
 .pager .pg-gap { color: var(--text-dim); padding: 2px 2px; }
+
+/* favorites filter toggle */
+.fav-filter { cursor: pointer; padding: 2px 7px; border-radius: 4px; font-size: 12px;
+              color: var(--text-dim); user-select: none; border: 1px solid transparent;
+              white-space: nowrap; }
+.fav-filter:hover { color: var(--accent); border-color: var(--border); }
+.fav-filter.on { color: var(--accent); border-color: var(--accent); font-weight: 700; }
 
 /* run detail */
 .run-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
@@ -187,6 +201,19 @@ select:disabled, input:disabled { opacity: 0.45; cursor: not-allowed; }
 .fs-body { flex: 1; min-height: 0; overflow: hidden; position: relative; }
 .chart-body { position: relative; }
 
+/* chart load status: "loading…" tag bottom-right + greyed plot, red tag on error */
+.chart-body.loading .uplot, .fs-body.loading .uplot {
+  opacity: 0.45; filter: grayscale(0.6);
+  transition: opacity 0.2s, filter 0.2s;
+}
+.load-tag {
+  position: absolute; right: 8px; bottom: 6px; z-index: 25;
+  font-size: 11px; color: var(--text-dim);
+  background: rgba(23, 26, 33, 0.85); border: 1px solid var(--border);
+  border-radius: 8px; padding: 1px 8px; pointer-events: none;
+}
+.load-tag.err { color: #e5646e; border-color: #e5646e; font-weight: 600; }
+
 .chart-float {
   position: absolute; top: 6px; right: 10px; z-index: 30;
   background: var(--bg-card); border: 1px solid var(--border);
@@ -240,3 +267,35 @@ select:disabled, input:disabled { opacity: 0.45; cursor: not-allowed; }
 }
 .chart-panel .chart-head button.active { color: var(--accent); border-color: var(--accent); }
 .u-legend { font-size: 12px; color: var(--text-dim); }
+
+/* run comparison */
+.cmp-box { margin-right: 6px; cursor: pointer; accent-color: var(--accent); }
+.cmp-bar {
+  position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 12px; z-index: 400;
+  background: var(--bg-card); border: 1px solid var(--accent);
+  border-radius: 10px; padding: 8px 16px; font-size: 13px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+}
+.cmp-bar button {
+  background: var(--accent); border: none; color: #0d1017;
+  border-radius: 6px; padding: 4px 12px; font-size: 13px; font-weight: 600;
+  cursor: pointer;
+}
+.cmp-bar button:disabled { opacity: 0.4; cursor: default; }
+.cmp-bar #cmpclear { background: none; border: 1px solid var(--border); color: var(--text-dim); font-weight: 400; }
+.cmp-bar #cmpclear:hover { color: var(--text); border-color: var(--text-dim); }
+.cmp-legend-run { display: inline-flex; align-items: center; gap: 5px; margin-left: 10px; }
+.cmp-descs { margin: -6px 0 12px; font-size: 13px; color: var(--text-dim); }
+.cmp-desc { padding: 1px 0; }
+.cmp-desc a { text-decoration: none; }
+.cmp-desc a:hover { text-decoration: underline; }
+.cmp-legend {
+  position: absolute; top: 6px; left: 90px; z-index: 20;
+  background: rgba(26, 29, 36, 0.88); border: 1px solid var(--border);
+  border-radius: 8px; padding: 6px 10px; font-size: 12px;
+  pointer-events: none; max-width: 70%;
+}
+.cmp-legend-line { padding: 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cmp-legend-line .hp-swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; }
+.chart-panel .chart-last { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -75,6 +75,28 @@ Logs one point. Rules and behavior:
 - If the server stays unreachable, the tracker switches to **offline mode**
   (see below) instead of ever killing your training run.
 
+### Non-blocking upload (default)
+
+By default (`async_upload=True`), `run.log()` never touches the network: it
+appends the point to an in-memory queue (~2 µs per call) and returns. A
+single background daemon thread drains the queue **in order** — sequentiality
+per run is strictly preserved — batching points into `log_bulk` requests
+(every `flush_interval=2.0`s at the latest, or every 500 points).
+
+- `run.finish()` enqueues the finish marker behind the pending points and
+  waits for the queue to drain, but never longer than `flush_timeout=5.0`s.
+- `tracker.flush()` / `tracker.close()` do the same bounded wait; `close()`
+  is also registered with `atexit`, so a normal process exit flushes
+  everything — and whatever couldn't be sent in time is dumped to the
+  offline file (nothing is lost even if the server is hung).
+- Every failure path in the client — network errors, 5xx, unexpected client
+  bugs — is caught and falls back to the offline file. Metric collection
+  never blocks the training loop (beyond the bounded `finish()` flush) and
+  never raises for service problems. (Client-side usage errors like logging
+  after `finish()` still raise.)
+- With `async_upload=False` the old behavior is kept: every `log()` is a
+  synchronous POST (useful for debugging or tiny scripts).
+
 ### Metric naming conventions (chart grouping)
 
 The UI groups related metrics onto shared charts by key name:
@@ -113,7 +135,9 @@ Marks the run completed. Further `log` calls raise `TrainUIError`.
 
 If a request fails repeatedly (server down, network issue), the tracker stops
 sending and appends every request to a local JSONL file instead — training
-continues untouched. The file is created in the working directory as
+continues untouched. In async mode all records keep flowing through the
+single worker queue, so the file stays strictly ordered even across the
+online→offline transition. The file is created in the working directory as
 `trainui-offline-<model>-<hash>-<timestamp>-<pid>.jsonl` (exclusive create, so
 concurrent processes never clobber each other), and a warning with the path is
 printed to stderr. All operations are recorded: model init, run creation,
@@ -140,9 +164,21 @@ outage simply continue their sequence.
 
 ### Pages
 
-- **Home** — pinned + recently used models, pinned runs, and a paginated
-  recent-runs list.
-- **Models** — searchable list; star to pin; ✕ to delete (cascades to runs).
+- **Home** — recently used models and a paginated recent-runs list.
+- **Models** — searchable list; star to favorite; ✕ to delete (cascades to runs).
+
+Lists are purely chronological (favorites are *not* floated to the top). Every
+list page — home, models, runs, model page — has a **★ favorites** filter
+toggle in the toolbar that narrows the list to starred items; the toggle is
+global (one state shared by all list pages) and persists in the browser
+across reloads.
+
+Two independent markers exist per model/run:
+
+- **★ favorite** — filterable via the ★ favorites toggle.
+- **◆ pin** — just a visual marker: pinned rows get a subtle blue background.
+  **Running** runs are highlighted more strongly (warm yellow) so in-progress
+  training stands out in any list.
 - **Model page** — the model's runs, searchable by id and start-date range.
 - **Run page** — the metrics dashboard (below).
 
@@ -196,6 +232,23 @@ token totals are also shown in the run page header and update live.
 - **Live updates** — auto-refresh with selectable period (5s–1m) and a
   *follow last* mode (`30s`, `10m`, `2h`, `1d`) pinning the view to the most
   recent window. Refresh stops automatically when the run completes.
+  Refresh ticks are **incremental**: the browser tracks the highest `seq` it
+  has and the server returns only newer points (`?since=N`), so refresh cost
+  is proportional to newly logged points, not run length (a full re-fetch
+  happens only when a previously unseen metric key appears).
+- **Chunked initial load** — opening a run fetches history in 10k-point
+  chunks (`?since=N&limit=10000`) instead of one giant request: the server
+  stays responsive to other clients (including your training process posting
+  points), and the charts render progressively as chunks arrive — the first
+  10k points appear almost immediately even for very long runs. The same
+  chunking is used by every full (re)load path: expanding a chart whose
+  series weren't fetched, leaving fullscreen, and the compare view's
+  per-run loads.
+- **Load status indicators** — while a chart is fetching, a `loading…` tag
+  sits at its bottom-right corner and the plot is greyed out; if a fetch
+  fails (e.g. server unreachable), the tag turns red (`⚠ load failed —
+  will retry`, hover for the error) and clears itself on the next
+  successful tick. Works in fullscreen too.
 - **Notifications** — enable *notify on finish* (the browser asks for
   notification permission once) and you get a desktop notification when the
   open run completes **while you're not looking** (another tab/app or the
@@ -205,6 +258,68 @@ token totals are also shown in the run page header and update live.
   collapsed state, log-y, hidden series) is stored per run in
   `localStorage`; the `bpc` toggle is stored globally so it applies to every
   run you open.
+
+### Comparing runs
+
+Every run row has a checkbox on the left. Tick runs on any list page (the
+selection survives page flips and navigation — it's kept in `localStorage`)
+and a bar appears at the bottom of the screen; hit **compare →** (needs ≥ 2
+runs) to open the compare view at `#/compare?ids=1,2,3`.
+
+- **Same chart layout as a run page** — one chart per metric group (loss,
+  tokens/sec, lr, custom groups…), but every chart overlays all selected runs.
+- **One color per run**, shown in the header next to the run link; when a
+  group holds several metrics (e.g. `train_loss` + `test_loss`) the second,
+  third… metric of the same run is dashed/dotted.
+- **X-axis** — *iterations* (default) or *time* (each run on its own
+  pause-free clock). Runs with different point sequences are aligned on a
+  union axis; missing points are interpolated across.
+- **Collapse/expand** — all charts except *loss* start collapsed; collapsed
+  headers show live per-run last values. Collapse state is remembered across
+  visits (shared by all compare sessions).
+- **Fullscreen** — `⤢` opens a chart full-screen with the compared-runs
+  legend (colors + live status badges) on top and the full control bar;
+  zoom and pinned frames carry over, `Esc` or `✕` exits.
+- **Sticky frames** — hovering shows a per-chart values frame; **click to
+  pin it** (a solid vertical line marks the pinned x), **shift-click pins
+  the same x on every open chart**. Values are grouped metric-major — the
+  same metric's runs sit side by side, each tagged with its run color and
+  id; runs without a point at that x show an interpolated `~` estimate.
+- **Controls** — moving-average window (smoothing is per run, applied before
+  the union-axis mapping), raw toggle, drag to pan, `+` / `−` / `fit all`,
+  double-click to fit. Hovering also shows live values in each chart's
+  legend.
+- **Y-axis** — `log y` toggle per chart (auto-disabled for non-positive
+  data, remembered across visits). **Drag vertically on the y-axis itself to
+  clip the range** to the dragged band (a shaded band shows the selection);
+  once clipped, **drag the axis again to resize the clip proportionally**
+  around its center (up = larger, down = smaller) and **drag vertically on
+  the plot to slide the clip window up/down** (grab-the-graph direction,
+  like x-panning; both log-aware when `log y` is on). Click the axis to
+  reset, or `fit all` / double-click the plot to restore the full view on
+  both axes. The clip holds while panning, zooming, and during live
+  updates.
+- **Legend toggles** — clicking a legend row under a chart hides/shows that
+  whole logical series (both the raw and smoothed lines of that
+  run + metric together); double-click isolates it, double-click again
+  restores all. Hidden state survives rebuilds and fullscreen.
+- **BPC** — loss charts get a `bpc` toggle when any compared run's model
+  declares `chars_per_token`; each run is converted with its own model's
+  ratio (`loss / chars_per_token / ln(2)`), runs without one stay in nats.
+  The preference is global and shared with run pages.
+- **On-chart legend** — the `legend` button on a chart header overlays a
+  compact per-run summary directly on the graph:
+  `#130 P1_init_… p=120.55M tr=13.5× (1.63B) - baseline, lr=3e-4`
+  (color-coded run id, model, params, tokens-trained multiplier,
+  description). Works in fullscreen too, updates live as tokens
+  accumulate, and the toggle is remembered across visits.
+- **Live updates** — while any compared run is still running, auto-refresh
+  (5s–1m) pulls new points for all runs and updates charts in place without
+  disturbing your zoom; in fullscreen only that chart is updated. Refresh
+  stops once every run is completed. Fetches are incremental per run
+  (`?since=N`), with a full re-fetch of a run only when it starts reporting
+  a new metric key. Initial loads use the same 10k-point chunking as the
+  single-run view.
 
 ### BPC (bits per character)
 
@@ -240,7 +355,8 @@ Schema migrations run automatically at startup.
 | `GET /api/models`, `GET /api/models/{id}` | model lists/detail |
 | `GET /api/runs`, `GET /api/runs/{id}` | run lists/detail |
 | `GET /api/runs/{id}/metrics?keys=a,b` | points, optionally filtered to metric keys; always includes `last` value per key |
-| `POST /api/{models,runs}/{id}/pin` | pin/unpin |
+| `POST /api/{models,runs}/{id}/pin` | pin/unpin (highlight) |
+| `POST /api/{models,runs}/{id}/favorite` | favorite/unfavorite (filterable) |
 | `DELETE /api/models/{id}`, `DELETE /api/runs/{id}` | delete (model cascades) |
 | `GET /api/config` | public auth config for the UI |
 

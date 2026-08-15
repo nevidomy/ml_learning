@@ -87,8 +87,9 @@ distort the graphs or the moving averages.
 
 ## Web UI
 
-- **Home** — pinned + recently used models, pinned + latest runs
-- **Models** — searchable list (id / description); star to pin
+- **Home** — recently used models, paginated recent runs
+- **Models** — searchable list (id / description); star to favorite
+  (★ favorites filter on every list; favorites don't float to the top)
 - **Model page** — its runs, searchable by id and start-date range
 - **Run page** — charts aligned on a shared x-axis (active time or
   iteration). Related metrics share a chart: `train_loss`, `test_loss`,
