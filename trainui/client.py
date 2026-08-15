@@ -14,6 +14,9 @@ Usage:
 If the server reports a sequence inconsistency (e.g. the process crashed and
 restarted), `run.log` raises `SequenceError`. Call `run.resume()` to mark the
 gap as a pause and continue logging from the server's expected sequence.
+
+To continue an existing run from a NEW process (even a finished one), use
+`tracker.attach_run(run_id)`.
 """
 from __future__ import annotations
 
@@ -55,6 +58,16 @@ class Run:
         self.id = run_id
         self._seq = 1
         self._finished = False
+
+    @property
+    def url(self) -> Optional[str]:
+        """Direct link to this run's page in the web UI.
+
+        None while the run exists only offline (a "local-N" ref) -- it gets
+        a real server id, and with it a URL, once the log is uploaded."""
+        if isinstance(self.id, str):
+            return None
+        return f"{self.tracker.base_url}/#/runs/{self.id}"
 
     def log(
         self,
@@ -353,6 +366,40 @@ class Tracker:
         self._enqueue_or_file({"op": "start_run", "local_run": ref, "payload": payload})
         return Run(self, ref)
 
+    def attach_run(self, run_id: int) -> Run:
+        """Attach to an EXISTING run and continue logging to it -- including
+        a completely stopped or finished one (e.g. training restarted in a
+        new process and should keep writing to the same run).
+
+        The run is reopened (status running), the gap since its last
+        activity is recorded as a pause (excluded from time axes and
+        statistics), and the returned Run logs from the server's expected
+        sequence, so no SequenceError dance is needed.
+
+        Unlike the rest of the API this is deliberately online-only: it has
+        to learn the server's sequence state, so it raises TrainUIError if
+        the server is unreachable or the run does not exist (catch it and
+        fall back to start_run() if you'd rather begin a fresh run).
+        """
+        if self.disabled:
+            return Run(self, run_id)
+        if self.offline:
+            raise TrainUIError(
+                "tracker is in offline mode; upload the offline log first "
+                "and attach from a fresh process"
+            )
+        if self.async_upload:
+            # pending records of other runs must land before we reopen this
+            # one (same ordering guarantee start_run relies on)
+            self.flush()
+        resp = self._post(f"/api/runs/{run_id}/resume", {"next_seq": None})
+        Run._check(resp)
+        run = Run(self, run_id)
+        run._seq = resp.json()["next_seq"]
+        print(f"trainui: attached to run #{run_id}: {run.url}",
+              file=sys.stderr)
+        return run
+
     # ----- offline fallback -----
 
     def _go_offline(self) -> None:
@@ -464,6 +511,7 @@ class Tracker:
 
     def _worker_loop(self) -> None:
         buf: list[dict] = []
+        last_dispatch = time.monotonic()
         while True:
             try:
                 rec = self._queue.get(timeout=self.flush_interval)
@@ -492,8 +540,14 @@ class Tracker:
                 with self._idle:
                     self._buffered = len(buf)
                     self._idle.notify_all()
-            # dispatch when the queue went quiet (timeout) or the batch is full
-            if buf and (rec is None or len(buf) >= 500):
+            # dispatch when the queue went quiet, the batch is full, or the
+            # flush interval has elapsed (steady logging keeps `rec` non-None,
+            # so without the time check points would only go out every 500)
+            if buf and (
+                rec is None
+                or len(buf) >= 500
+                or time.monotonic() - last_dispatch >= self.flush_interval
+            ):
                 with self._idle:
                     self._inflight += 1
                 try:
@@ -504,6 +558,7 @@ class Tracker:
                         self._buffered = 0
                         self._idle.notify_all()
                     buf = []
+                    last_dispatch = time.monotonic()
 
     def _dispatch(self, buf: list[dict]) -> None:
         """Send a batch of records in order. Any failure offs the remaining

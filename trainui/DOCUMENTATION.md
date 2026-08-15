@@ -131,6 +131,31 @@ except SequenceError:
 
 Marks the run completed. Further `log` calls raise `TrainUIError`.
 
+### `tracker.attach_run(run_id)`
+
+Attach to an **existing** run from a new process and continue logging to it —
+including a completely stopped or finished run (e.g. training crashed and
+restarted, and you want the continuation in the same run instead of a new
+one):
+
+```python
+run = tracker.attach_run(42)   # reopen run #42
+run.log(iteration=it, ...)     # continues seamlessly
+run.finish()
+```
+
+The run is reopened (status `running`), the gap since its last activity is
+recorded as a **pause** (excluded from time axes and statistics), and the
+returned `Run` starts from the server's expected sequence — no
+`SequenceError` handling needed.
+
+Unlike the rest of the API, `attach_run` is **online-only**: it must learn
+the server's sequence state, so it raises `TrainUIError` if the server is
+unreachable or the run doesn't exist (catch it and fall back to
+`start_run()` if a fresh run is acceptable). It also raises if this tracker
+is already in offline mode — upload the offline log first, then attach from
+a fresh process. `run.url` gives the run's web UI link.
+
 ### Offline mode (server unreachable)
 
 If a request fails repeatedly (server down, network issue), the tracker stops

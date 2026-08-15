@@ -69,6 +69,14 @@ except SequenceError:
     run.log(...)
 ```
 
+To keep logging into an existing run from a **new process** (even a finished
+run), attach to it by id — the stopped gap becomes a pause and the sequence
+is adopted automatically:
+
+```python
+run = tracker.attach_run(42)   # raises TrainUIError if server down / no run
+```
+
 If the server is unreachable, the client never kills your training run: after
 a few retries it switches to offline mode and appends every request to a
 `trainui-offline-<model>-<hash>-<ts>-<pid>.jsonl` file in the working
