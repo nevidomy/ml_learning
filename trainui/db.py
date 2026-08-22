@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import sqlite3
 import threading
 import time
@@ -81,6 +82,10 @@ CREATE TABLE IF NOT EXISTS sessions (
     created_at REAL NOT NULL,
     expires_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
 
 
@@ -107,6 +112,7 @@ class Database:
         with self._write_lock, self._conn() as conn:
             conn.executescript(SCHEMA)
             self._migrate(conn)
+        self.ensure_api_token()
 
     def _conn(self) -> sqlite3.Connection:
         """One connection per thread; WAL allows concurrent readers + 1 writer."""
@@ -247,6 +253,35 @@ class Database:
         with self._write_lock, self._conn() as conn:
             conn.execute("DELETE FROM sessions WHERE token_hash=?",
                          (token_hash,))
+
+    def get_setting(self, key: str) -> str | None:
+        row = self._conn().execute(
+            "SELECT value FROM settings WHERE key=?", (key,)
+        ).fetchone()
+        return row["value"] if row else None
+
+    def set_setting(self, key: str, value: str) -> None:
+        with self._write_lock, self._conn() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?,?)",
+                (key, value),
+            )
+
+    def ensure_api_token(self) -> str:
+        """Stable client token: env wins, else reuse the stored one, else mint."""
+        env = os.environ.get("TRAINUI_API_TOKEN", "").strip()
+        if env:
+            if self.get_setting("api_token") != env:
+                self.set_setting("api_token", env)
+            return env
+        stored = self.get_setting("api_token")
+        if stored:
+            return stored
+        token = secrets.token_urlsafe(32)
+        self.set_setting("api_token", token)
+        print(f"[trainui] generated API token (also in the UI footer): {token}",
+              flush=True)
+        return token
 
     # ----- models -----
 

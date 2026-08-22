@@ -386,6 +386,7 @@ Schema migrations run automatically at startup.
 | `POST /api/{models,runs}/{id}/favorite` | favorite/unfavorite (filterable) |
 | `DELETE /api/models/{id}`, `DELETE /api/runs/{id}` | delete (model cascades) |
 | `GET /api/config` | public auth config for the UI (`{"auth_enabled": bool}`) |
+| `GET /api/api_token` | python-client bearer token (auth required; same as footer button) |
 | `POST /api/auth/signup` | request an invite (email; allowlist-gated, non-enumerating) |
 | `GET /api/auth/invite/{token}` | invite landing info (masked email or 410) |
 | `POST /api/auth/invite/{token}` | set password (single-use; returns a session token) |
@@ -419,7 +420,10 @@ Accepted credentials per `/api/*` request (any one):
 
 1. `Authorization: Bearer <session token>` — from the login flow (web UI).
 2. `Authorization: Bearer <TRAINUI_API_TOKEN>` — shared secret for training
-   scripts (the client reads the same env var, or pass `token=` to `Tracker`).
+   scripts. Auto-generated on first start and stored in the DB if the env
+   var is unset (reveal it from the **API token** button in the page footer,
+   or `GET /api/api_token`). The client reads the same env var, or pass
+   `token=` to `Tracker`.
 3. Nothing, from **direct loopback connections** — local tools and the
    offline-log uploader keep working. The exemption is void whenever proxy
    headers (`X-Forwarded-For`, `X-Real-IP`, `Forwarded`) are present, so a
@@ -430,7 +434,7 @@ Configuration:
 
 ```bash
 export TRAINUI_ALLOWED_EMAILS="you@gmail.com,teammate@gmail.com"  # invite allowlist
-export TRAINUI_API_TOKEN="$(openssl rand -hex 32)"                # training scripts
+# TRAINUI_API_TOKEN is optional -- minted on first start if unset
 export TRAINUI_PUBLIC_URL="https://trainui.example.com"           # invite email links
 # mail delivery — without SMTP the invite link is printed to the server log:
 export TRAINUI_SMTP_HOST=smtp.gmail.com TRAINUI_SMTP_PORT=587

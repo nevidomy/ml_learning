@@ -126,6 +126,12 @@ check("stored password is salted pbkdf2, not plaintext",
 H = {"Authorization": f"Bearer {session}"}
 check("session token accepted",
       requests.get(BASE + "/api/models", headers=H).status_code == 200)
+check("API token endpoint needs auth",
+      requests.get(BASE + "/api/api_token").status_code == 401)
+check("API token revealed to signed-in user",
+      requests.get(BASE + "/api/api_token", headers=H).json()["token"] == "apitest123")
+check("API token not on public config",
+      "token" not in requests.get(BASE + "/api/config").json())
 
 # -- login --
 check("wrong password -> 401",

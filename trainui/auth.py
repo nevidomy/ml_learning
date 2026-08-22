@@ -51,7 +51,17 @@ ALLOWED_EMAILS = {
     ).split(",")
     if e.strip()
 }
-API_TOKEN = os.environ.get("TRAINUI_API_TOKEN", "")
+def api_token() -> str:
+    """Current client bearer token. Env override wins; otherwise the value
+    persisted in the DB (minted on first start if neither is set)."""
+    env = os.environ.get("TRAINUI_API_TOKEN", "").strip()
+    if env:
+        return env
+    try:
+        from .server import db
+        return db.get_setting("api_token") or ""
+    except Exception:
+        return ""
 
 _PBKDF2_ITERATIONS = 260_000
 INVITE_TTL_S = 24 * 3600
@@ -181,7 +191,9 @@ async def require_auth(request: Request) -> None:
     auth = request.headers.get("authorization", "")
     token = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
     if token:
-        if API_TOKEN and hmac.compare_digest(token, API_TOKEN):
+        expected = api_token()
+        if (expected and len(token) == len(expected)
+                and hmac.compare_digest(token, expected)):
             return
         # local import avoids a circular import at module load; the server
         # owns the Database singleton

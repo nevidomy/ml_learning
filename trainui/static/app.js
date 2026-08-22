@@ -18,6 +18,7 @@ class AuthError extends Error {}
 function showLogin(message = "") {
   cleanup();
   renderAuthBox();
+  setApiTokenBarVisible(false);
   app.innerHTML = `
     <div class="login-box">
       <h2>Sign in to trainui</h2>
@@ -58,6 +59,7 @@ function showLogin(message = "") {
 
 function showSignup(sent = false, message = "") {
   cleanup();
+  setApiTokenBarVisible(false);
   app.innerHTML = `
     <div class="login-box">
       <h2>Request an invite</h2>
@@ -99,6 +101,7 @@ function showSignup(sent = false, message = "") {
 // landing page for emailed invite links: #/setpw/<token>
 async function viewSetPw(token) {
   cleanup();
+  setApiTokenBarVisible(false);
   let email = null;
   try {
     email = (await api(`/api/auth/invite/${encodeURIComponent(token)}`)).email;
@@ -3061,6 +3064,7 @@ async function route() {
   if (segs[0] === "setpw") { viewSetPw(segs[1] || ""); return; }
   if (authConfig.auth_enabled && !getToken()) { showLogin(); return; }
   renderAuthBox();
+  setApiTokenBarVisible(true);
   app.innerHTML = `<div class="loading">loading…</div>`;
   try {
     if (segs.length === 0) await viewLanding();
@@ -3080,10 +3084,51 @@ async function route() {
   }
 }
 
+function setApiTokenBarVisible(on) {
+  const bar = document.getElementById("apitoken-bar");
+  if (bar) bar.classList.toggle("visible", !!on);
+}
+
+function bindApiTokenBar() {
+  const show = document.getElementById("show-token");
+  const val = document.getElementById("token-value");
+  const copy = document.getElementById("copy-token");
+  if (!show || show.dataset.bound) return;
+  show.dataset.bound = "1";
+  show.addEventListener("click", async () => {
+    if (!val.hidden) {
+      val.hidden = true;
+      copy.hidden = true;
+      show.textContent = "API token";
+      return;
+    }
+    try {
+      const data = await api("/api/api_token");
+      val.textContent = data.token;
+      val.hidden = false;
+      copy.hidden = false;
+      show.textContent = "hide";
+    } catch (e) {
+      val.textContent = "couldn't load token";
+      val.hidden = false;
+    }
+  });
+  copy.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(val.textContent);
+      copy.textContent = "copied";
+      setTimeout(() => { copy.textContent = "copy"; }, 1200);
+    } catch {
+      copy.textContent = "select & copy";
+    }
+  });
+}
+
 async function boot() {
   try {
     authConfig = await api("/api/config");
   } catch { /* auth disabled or server unreachable */ }
+  bindApiTokenBar();
   renderAuthBox();
   route();
 }

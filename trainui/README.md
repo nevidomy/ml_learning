@@ -127,10 +127,13 @@ Auth is **disabled by default** (local use). To run on the public web:
 
 ```bash
 export TRAINUI_ALLOWED_EMAILS="nevidomy.vitaliy@gmail.com"   # invite allowlist
-export TRAINUI_API_TOKEN="$(openssl rand -hex 32)"           # for training scripts
 export TRAINUI_PUBLIC_URL="https://trainui.example.com"      # used in invite emails
 python -m trainui.server --global --port 8501
 ```
+
+`TRAINUI_API_TOKEN` is optional. If unset, the server mints one on first start
+and keeps it in the database (same token after restarts). Reveal it from the
+**API token** button in the page footer, then give it to training scripts.
 
 `--global` listens on `0.0.0.0` and enables **invite-only email/password auth**
 — no Google Cloud project needed. Flow: an allowlisted user enters their email

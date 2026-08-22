@@ -104,6 +104,12 @@ def public_config():
     return auth_config()
 
 
+@app.get("/api/api_token", dependencies=[Depends(require_auth)])
+def get_api_token():
+    """The python-client bearer token. Auth-gated so it's not on /api/config."""
+    return {"token": db.ensure_api_token()}
+
+
 @app.post("/api/auth/signup")
 def signup(req: SignupRequest):
     """Request an invite. Allowlist-gated; deliberately non-enumerating --

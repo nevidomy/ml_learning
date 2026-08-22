@@ -62,4 +62,10 @@ legacy = Database(path2)
 legacy.create_run("old", runner="phone")
 check("migrated DB accepts runner", legacy.list_runs()[0]["runner"] == "phone")
 
+# API token: minted once, reused on reopen
+t1 = db.ensure_api_token()
+check("API token minted", bool(t1) and len(t1) > 20)
+db2 = Database(os.environ["TRAINUI_DB"])
+check("API token stable across reopen", db2.ensure_api_token() == t1)
+
 print(f"\n{ok} checks passed")
