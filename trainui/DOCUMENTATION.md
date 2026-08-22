@@ -48,11 +48,12 @@ description and any parameters passed (omitted parameters keep old values).
 | `token` | `$TRAINUI_API_TOKEN` | Bearer token for auth-enabled servers. |
 | `disabled` | `False` | Dry-run mode: every call is a local no-op, no HTTP requests at all. |
 
-### `tracker.start_run(description="") -> Run`
+### `tracker.start_run(description="", runner="") -> Run`
 
 Starts a new run. `description` is an optional note shown in run lists and on
-the run page. Use it as a context manager — `run.finish()` is called
-automatically on exit.
+the run page. `runner` is an optional label for who/what is running it
+(hostname, user, machine name) — when set, run lists show it as **by …**.
+Use it as a context manager — `run.finish()` is called automatically on exit.
 
 ### `run.log(iteration, batches=0, context_size=None, lr2=None, **metrics)`
 
@@ -213,14 +214,15 @@ page size and the current page of each list persist in the browser
 (`localStorage`), and changing any search filter jumps back to page 1.
 
 Run rows everywhere show start time, point count, total train time (pauses
-excluded), total tokens trained on, model parameter count, the run
+excluded), total tokens trained on, model parameter count, the optional
+`runner` label (as **by …**), the run
 description, and last known losses — `val_loss` first and highlighted, then
 `test_loss` / `train_loss`, each with BPC in parentheses when the model
 declares `chars_per_token`. Tokens are shown as a multiple of the parameter
 count (Chinchilla-style) with the absolute number in parentheses:
 
 ```
-run #17 · gpt-ua-120m — baseline, lr=3e-4        running
+run #17 · by laptop · gpt-ua-120m — baseline, lr=3e-4        running
 started Aug 10, 3:12 PM · 12,403 points · trained 2h 14m
 120.55M params · tokens 13.5× (1.63B)
 val 4.2123 (bpc 1.784) · test 4.2210 (bpc 1.788) · train 4.0123 (bpc 1.734)
@@ -371,7 +373,7 @@ Schema migrations run automatically at startup.
 | Endpoint | Purpose |
 |---|---|
 | `POST /api/init` | upsert model (description, params, metrics_decl, chars_per_token) |
-| `POST /api/runs` | start run (`model_id`, `description`) |
+| `POST /api/runs` | start run (`model_id`, `description`, optional `runner`) |
 | `POST /api/runs/{id}/log` | log point (`seq`, `iteration`, `batches`, `context_size`, `metrics`, optional `ts`) |
 | `POST /api/runs/{id}/log_bulk` | atomic multi-point insert used by the offline uploader (skips already-applied seqs) |
 | `POST /api/runs/{id}/resume` | close pause gap, adopt expected seq |

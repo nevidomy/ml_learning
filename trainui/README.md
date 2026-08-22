@@ -47,7 +47,7 @@ tracker = Tracker(
 )
 # re-initing an existing model_id updates description (and params if given)
 
-with tracker.start_run() as run:
+with tracker.start_run(runner="laptop") as run:  # runner= is optional; shown in run lists
     for it in range(1000):
         ...
         run.log(iteration=it, batches=32, train_loss=loss, lr=lr, lr2=lr_backbone)

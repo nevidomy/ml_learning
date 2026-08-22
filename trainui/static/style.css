@@ -128,6 +128,7 @@ a.card:hover { background: var(--bg-hover); border-color: #3a4150; }
 .row .badge.completed { color: var(--text-dim); }
 .row-sub b.hl { color: var(--accent); font-weight: 700; }
 .row-sub b.hl2 { color: var(--accent-2); font-weight: 700; }
+.runner { color: var(--warn); font-weight: 600; }
 
 .empty { color: var(--text-dim); padding: 18px; text-align: center;
          border: 1px dashed var(--border); border-radius: 8px; }

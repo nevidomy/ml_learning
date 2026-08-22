@@ -339,11 +339,20 @@ class Tracker:
             self._go_offline()
             self._log_offline({"op": "init", "payload": payload})
 
-    def start_run(self, description: str = "") -> Run:
-        """Start a new run; `description` is an optional note shown in the UI."""
+    def start_run(self, description: str = "", runner: str = "") -> Run:
+        """Start a new run.
+
+        `description` is an optional note shown in the UI. `runner` is an
+        optional label for who/what is running it (hostname, user, machine);
+        when set it is shown in run lists.
+        """
         if self.disabled:
             return Run(self, 0)
-        payload = {"model_id": self.model_id, "description": description}
+        payload = {
+            "model_id": self.model_id,
+            "description": description,
+            "runner": runner,
+        }
         if self.offline:
             return self._start_offline_run(payload)
         try:

@@ -37,7 +37,8 @@ CREATE TABLE IF NOT EXISTS runs (
     status TEXT NOT NULL DEFAULT 'running',
     pinned INTEGER NOT NULL DEFAULT 0,
     last_metrics TEXT,
-    description TEXT NOT NULL DEFAULT ''
+    description TEXT NOT NULL DEFAULT '',
+    runner TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_runs_model ON runs(model_id);
 
@@ -137,6 +138,10 @@ class Database:
         if "description" not in run_cols:
             conn.execute(
                 "ALTER TABLE runs ADD COLUMN description TEXT NOT NULL DEFAULT ''"
+            )
+        if "runner" not in run_cols:
+            conn.execute(
+                "ALTER TABLE runs ADD COLUMN runner TEXT NOT NULL DEFAULT ''"
             )
         if "last_metrics" not in run_cols:
             conn.execute("ALTER TABLE runs ADD COLUMN last_metrics TEXT")
@@ -332,7 +337,11 @@ class Database:
     # ----- runs -----
 
     def create_run(
-        self, model_id: str, description: str = "", started_at: float | None = None
+        self,
+        model_id: str,
+        description: str = "",
+        started_at: float | None = None,
+        runner: str = "",
     ) -> dict:
         now = time.time()
         started = started_at or now
@@ -341,9 +350,9 @@ class Database:
             if row is None:
                 raise NotFound(f"model {model_id!r} not found")
             cur = conn.execute(
-                "INSERT INTO runs (model_id, started_at, last_activity_at, description)"
-                " VALUES (?, ?, ?, ?)",
-                (model_id, started, started, description),
+                "INSERT INTO runs (model_id, started_at, last_activity_at,"
+                " description, runner) VALUES (?, ?, ?, ?, ?)",
+                (model_id, started, started, description, runner or ""),
             )
             self._touch_model(conn, model_id)
             run_id = cur.lastrowid
@@ -384,8 +393,11 @@ class Database:
         if fav:
             clauses.append("r.favorite = 1")
         if q:
-            clauses.append("(CAST(r.id AS TEXT) LIKE ? OR r.model_id LIKE ?)")
-            params += [f"%{q}%", f"%{q}%"]
+            clauses.append(
+                "(CAST(r.id AS TEXT) LIKE ? OR r.model_id LIKE ?"
+                " OR r.description LIKE ? OR r.runner LIKE ?)"
+            )
+            params += [f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%"]
         if date_from is not None:
             clauses.append("r.started_at >= ?")
             params.append(date_from)

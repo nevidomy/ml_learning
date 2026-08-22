@@ -36,6 +36,7 @@ class InitRequest(BaseModel):
 class StartRunRequest(BaseModel):
     model_id: str
     description: str = ""
+    runner: str = ""  # optional "who is running this" label
     started_at: Optional[float] = None  # set by the offline-log uploader
 
 
@@ -174,7 +175,7 @@ def init_model(req: InitRequest):
 
 @app.post("/api/runs", dependencies=[Depends(require_auth)])
 def start_run(req: StartRunRequest):
-    return db.create_run(req.model_id, req.description, req.started_at)
+    return db.create_run(req.model_id, req.description, req.started_at, req.runner)
 
 
 @app.post("/api/runs/{run_id}/log", dependencies=[Depends(require_auth)])

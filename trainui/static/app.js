@@ -475,12 +475,13 @@ function runRow(r, showModel) {
   const tokens = fmtTokens(r) ? `tokens <b class="hl">${fmtTokens(r)}</b>` : "";
   const sizeLine = [params, tokens].filter(Boolean).join(" · ");
   const desc = r.description ? ` — ${esc(r.description)}` : "";
+  const runner = r.runner ? ` · <span class="runner">by ${esc(r.runner)}</span>` : "";
   return `<a class="row ${r.status === "running" ? "running" : ""} ${r.pinned ? "pinned" : ""}" href="#/runs/${r.id}">
     <span class="row-btns"><input type="checkbox" class="cmp-box" data-cmp="${r.id}"
       title="select for comparison" ${getCompareSel().includes(r.id) ? "checked" : ""}>
     ${favBtn("run", r.id, r.favorite)}${pinBtn("run", r.id, r.pinned)}</span>
     <div class="row-main">
-      <div class="row-title">run #${r.id}${showModel ? ` · ${breakable(r.model_id)}` : ""}${desc}</div>
+      <div class="row-title">run #${r.id}${runner}${showModel ? ` · ${breakable(r.model_id)}` : ""}${desc}</div>
       <div class="row-sub">started ${fmtDate(r.started_at)} · ${r.point_count} points${trained}</div>
       ${sizeLine ? `<div class="row-sub">${sizeLine}</div>` : ""}
       ${losses ? `<div class="row-sub">${losses}</div>` : ""}
@@ -1828,6 +1829,7 @@ async function viewCompare(ids) {
     <div class="cmp-descs">
       ${state.runData.map(rd => `<div class="cmp-desc">
         <a href="#/runs/${rd.run.id}" style="color:${rd.color}"><b>run #${rd.run.id}</b></a>
+        ${rd.run.runner ? `<span class="runner">by ${esc(rd.run.runner)}</span> ` : ""}
         — ${esc(rd.run.description || rd.run.model_id)}</div>`).join("")}
     </div>
     <div class="chart-controls">
@@ -1920,6 +1922,7 @@ async function viewRunDetail(id) {
     </div>
     ${run.description ? `<div class="run-desc">${esc(run.description)}</div>` : ""}
     <div class="run-stats">
+      ${run.runner ? `<span>by <b>${esc(run.runner)}</b></span>` : ""}
       <span>started <b>${fmtDate(run.started_at)}</b></span>
       <span>points <b id="stat-points">…</b></span>
       <span>pauses <b id="stat-pauses">${run.pauses.length}</b></span>
